@@ -1,0 +1,6 @@
+{
+  "name": "FGP-Backend",
+  "description": "Authoritative Modular Monolith Backend for Fantasy Gaming Platform (FGP) with Fastify, Prisma, Game Engines, and Real-Time Systems",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

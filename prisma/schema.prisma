@@ -1,0 +1,282 @@
+// ==============================================================================
+// FGP-Backend Prisma Schema (Phase 03 Foundation)
+// Authoritative Schema for Users, Auth, Ledger, Games, Rounds, Configs & Audit
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------------------------
+
+enum UserRole {
+  PLAYER
+  SUPER_ADMIN
+  OPERATIONS_ADMIN
+  CONFIGURATION_ADMIN
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum GameCategory {
+  PREDICTION
+  CASINO
+  REAL_TIME
+  MINI_GAME
+}
+
+enum GameStatus {
+  ACTIVE
+  MAINTENANCE
+  DISABLED
+}
+
+enum RoundStatus {
+  SCHEDULED
+  OPEN
+  LOCKED
+  RESULT_PENDING
+  RESULT_DECLARED
+  SETTLED
+  COMPLETED
+}
+
+enum ConfigStatus {
+  DRAFT
+  VALIDATE
+  PREVIEW
+  APPROVE
+  PUBLISH
+  ACTIVE
+}
+
+enum TransactionType {
+  CREDIT
+  ENTRY
+  REWARD
+  REVERSAL
+  ADJUSTMENT
+}
+
+// ------------------------------------------------------------------------------
+// Identity & Authentication
+// ------------------------------------------------------------------------------
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  username     String      @unique
+  passwordHash String
+  role         UserRole    @default(PLAYER)
+  status       UserStatus  @default(ACTIVE)
+  avatarUrl    String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  lastLoginAt  DateTime?
+
+  refreshTokens RefreshToken[]
+  sessions      UserSession[]
+  creditAccount VirtualCreditAccount?
+  auditActions  AuditLog[]            @relation("ActorAuditLogs")
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  userAgent  String?
+  ipAddress  String?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model UserSession {
+  id             String    @id @default(uuid())
+  userId         String
+  sessionToken   String    @unique
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  lastActivityAt DateTime  @default(now())
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+// ------------------------------------------------------------------------------
+// Virtual Credit Accounting & Ledger (Demo/Simulated Credits Only)
+// ------------------------------------------------------------------------------
+
+model VirtualCreditAccount {
+  id            String              @id @default(uuid())
+  userId        String              @unique
+  balance       Decimal             @default(10000.00) @db.Decimal(18, 4)
+  lockedBalance Decimal             @default(0.00) @db.Decimal(18, 4)
+  currency      String              @default("DEMO_CREDIT")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  LedgerTransaction[]
+
+  @@map("virtual_credit_accounts")
+}
+
+model LedgerTransaction {
+  id             String          @id @default(uuid())
+  accountId      String
+  type           TransactionType
+  amount         Decimal         @db.Decimal(18, 4)
+  balanceBefore  Decimal         @db.Decimal(18, 4)
+  balanceAfter   Decimal         @db.Decimal(18, 4)
+  referenceType  String?         // e.g., 'ROUND_ENTRY', 'ROUND_REWARD', 'ADMIN_ADJUSTMENT'
+  referenceId    String?         // e.g., roundId, adminUserId
+  idempotencyKey String?         @unique
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+
+  account        VirtualCreditAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("ledger_transactions")
+}
+
+// ------------------------------------------------------------------------------
+// Games & Configurations
+// ------------------------------------------------------------------------------
+
+model GameEntity {
+  id                String              @id // Stable game ID (e.g. 'color_pred', 'crash', etc.)
+  code              String              @unique
+  name              String
+  category          GameCategory
+  status            GameStatus          @default(ACTIVE)
+  minEntry          Decimal             @default(10.00) @db.Decimal(12, 2)
+  maxEntry          Decimal             @default(10000.00) @db.Decimal(12, 2)
+  defaultMultiplier Decimal             @default(1.98) @db.Decimal(8, 4)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  configurations    GameConfiguration[]
+  rounds            GameRound[]
+
+  @@map("games")
+}
+
+model GameConfiguration {
+  id                String       @id @default(uuid())
+  gameId            String
+  version           Int
+  status            ConfigStatus @default(DRAFT)
+  generalConfig     Json
+  entryConfig       Json
+  timingConfig      Json
+  ruleConfig        Json
+  rewardConfig      Json
+  displayConfig     Json
+  operationalConfig Json
+  publishedBy       String?
+  publishedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  game              GameEntity   @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  rounds            GameRound[]
+
+  @@unique([gameId, version])
+  @@index([gameId, status])
+  @@map("game_configurations")
+}
+
+// ------------------------------------------------------------------------------
+// Round Engine Foundation
+// ------------------------------------------------------------------------------
+
+model GameRound {
+  id            String             @id @default(uuid())
+  gameId        String
+  roundNumber   BigInt
+  status        RoundStatus        @default(SCHEDULED)
+  configId      String?
+  scheduledAt   DateTime           @default(now())
+  openedAt      DateTime?
+  lockedAt      DateTime?
+  declaredAt    DateTime?
+  settledAt     DateTime?
+  completedAt   DateTime?
+  result        Json?
+  metadata      Json?
+
+  game          GameEntity         @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  configuration GameConfiguration? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@unique([gameId, roundNumber])
+  @@index([gameId, status])
+  @@map("game_rounds")
+}
+
+// ------------------------------------------------------------------------------
+// Audit & Announcements
+// ------------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  action     String   // e.g. 'UPDATE_GAME_CONFIGURATION', 'PUBLISH_CONFIGURATION'
+  targetType String   // e.g. 'GAME', 'CONFIGURATION', 'PLAYER', 'CREDIT'
+  targetId   String?
+  reason     String?
+  metadata   Json?
+  ipAddress  String?
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  actor      User     @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Announcement {
+  id          String    @id @default(uuid())
+  title       String
+  content     String
+  targetRole  UserRole? // Nullable means all roles
+  priority    Int       @default(0) // Higher integer = higher priority
+  isActive    Boolean   @default(true)
+  publishedAt DateTime  @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive, publishedAt])
+  @@map("announcements")
+}
