@@ -3,6 +3,7 @@ import { roundService } from '../../src/modules/rounds/roundService.ts';
 import { settlementService } from '../../src/modules/settlements/settlementService.ts';
 import { configService } from '../../src/modules/configurations/configService.ts';
 import { resetRepositoriesToProduction, initializeRepositoryContainer, getRepositories } from '../../src/infrastructure/repositories/index.ts';
+import { prisma, isDatabaseReachable } from '../../src/infrastructure/database/prisma.ts';
 import { RoundLifecycleError, ConflictError } from '../../src/shared/errors/index.ts';
 
 describe('Authoritative Lifecycle & Engine Integration Flow', () => {
@@ -69,6 +70,25 @@ describe('Authoritative Lifecycle & Engine Integration Flow', () => {
     it('should register entry in OPEN round and execute authoritative cashout', async () => {
       const round = await roundService.createRound('crash');
       expect(round.status).toBe('OPEN');
+
+      // Make Crash round deterministic for a winning cashout
+      if (await isDatabaseReachable()) {
+        await prisma.gameRound.update({
+          where: { id: round.id },
+          data: {
+            crashPoint: 50.0,
+            openedAt: new Date(),
+          },
+        });
+      }
+      const roundRepo = getRepositories().roundRepo as any;
+      if (roundRepo.rounds && roundRepo.rounds.has(round.id)) {
+        const inMem = roundRepo.rounds.get(round.id);
+        inMem.crashPoint = 50.0;
+        inMem.openedAt = new Date();
+      }
+      round.crashPoint = 50.0;
+      round.openedAt = new Date();
 
       // Submit player entry
       const entry = await settlementService.submitEntry({

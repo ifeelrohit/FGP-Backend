@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { roundService } from '../../src/modules/rounds/roundService.ts';
 import { settlementService } from '../../src/modules/settlements/settlementService.ts';
 import { ledgerService } from '../../src/modules/ledger/ledgerService.ts';
-import { resetRepositoriesToProduction, initializeRepositoryContainer } from '../../src/infrastructure/repositories/index.ts';
+import { resetRepositoriesToProduction, initializeRepositoryContainer, getRepositories } from '../../src/infrastructure/repositories/index.ts';
+import { prisma, isDatabaseReachable } from '../../src/infrastructure/database/prisma.ts';
 import { ConflictError, InsufficientBalanceError } from '../../src/shared/errors/index.ts';
 
 describe('Concurrency & Invariant Integrity Test Suite', () => {
@@ -147,6 +148,25 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
     await ledgerService.getBalance(userId);
 
     const round = await roundService.createRound('crash');
+    // Make Crash round deterministic for a winning cashout
+    if (await isDatabaseReachable()) {
+      await prisma.gameRound.update({
+        where: { id: round.id },
+        data: {
+          crashPoint: 50.0,
+          openedAt: new Date(),
+        },
+      });
+    }
+    const roundRepo = getRepositories().roundRepo as any;
+    if (roundRepo.rounds && roundRepo.rounds.has(round.id)) {
+      const inMem = roundRepo.rounds.get(round.id);
+      inMem.crashPoint = 50.0;
+      inMem.openedAt = new Date();
+    }
+    round.crashPoint = 50.0;
+    round.openedAt = new Date();
+
     const entry = await settlementService.submitEntry({
       userId,
       gameId: 'crash',
