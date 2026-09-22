@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { roundService } from '../../src/modules/rounds/roundService.ts';
 import { settlementService } from '../../src/modules/settlements/settlementService.ts';
 import { configService } from '../../src/modules/configurations/configService.ts';
-import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
+import { resetRepositoriesToProduction, initializeRepositoryContainer } from '../../src/infrastructure/repositories/index.ts';
 import { RoundLifecycleError, ConflictError } from '../../src/shared/errors/index.ts';
 
 describe('Authoritative Lifecycle & Engine Integration Flow', () => {
-  beforeEach(() => {
-    setRepositories(createInMemoryRepositories());
+  beforeEach(async () => {
+    resetRepositoriesToProduction();
+    await initializeRepositoryContainer();
   });
 
   describe('Round State Machine & Lifecycle Guardrails', () => {

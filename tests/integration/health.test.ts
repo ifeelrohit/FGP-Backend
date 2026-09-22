@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { buildApp } from '../../src/app/app.ts';
+import * as prismaModule from '../../src/infrastructure/database/prisma.ts';
 
 describe('Integration: Health & Readiness Endpoints', () => {
   it('GET /health should return pass status', async () => {
@@ -41,9 +42,10 @@ describe('Integration: Health & Readiness Endpoints', () => {
   });
 
   it('GET /ready should return 503 unready when PostgreSQL is unreachable', async () => {
-    // Point to unreachable database host/port
-    const originalUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54399/unreachable_db?connect_timeout=1';
+    const spy = vi.spyOn(prismaModule, 'checkDatabaseConnection').mockResolvedValueOnce({
+      connected: false,
+      error: 'PostgreSQL database server offline or unreachable',
+    });
 
     const app = await buildApp();
     const response = await app.inject({
@@ -58,11 +60,6 @@ describe('Integration: Health & Readiness Endpoints', () => {
     expect(json.subsystems.database.connected).toBe(false);
     expect(json.subsystems.gameEngines.registered).toBe(18);
     await app.close();
-
-    if (originalUrl) {
-      process.env.DATABASE_URL = originalUrl;
-    } else {
-      delete process.env.DATABASE_URL;
-    }
+    spy.mockRestore();
   });
 });

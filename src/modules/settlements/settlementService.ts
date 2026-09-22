@@ -164,6 +164,8 @@ export class SettlementService {
     if (existingSettlement) {
       const balance = await ledgerService.getBalance(userId);
       return {
+        id: existingSettlement.id,
+        settlementId: existingSettlement.id,
         entryId: existingSettlement.entryId,
         roundId: existingSettlement.roundId,
         gameId: existingSettlement.gameId,

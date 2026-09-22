@@ -35,6 +35,7 @@ export class PrismaUserRepository implements IUserRepository {
       // 1. Create User
       const user = await tx.user.create({
         data: {
+          ...(dto.id ? { id: dto.id } : {}),
           email: dto.email,
           username: dto.username,
           passwordHash: dto.passwordHash,

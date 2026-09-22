@@ -19,6 +19,7 @@ export interface UserEntity {
 }
 
 export interface CreateUserDto {
+  id?: string;
   email: string;
   username: string;
   passwordHash: string;

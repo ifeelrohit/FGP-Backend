@@ -120,7 +120,7 @@ export class InMemoryUserRepository implements IUserRepository {
     dto: CreateUserDto,
     initialCredits: number
   ): Promise<{ user: UserEntity; accountId: string }> {
-    const id = crypto.randomUUID();
+    const id = dto.id || crypto.randomUUID();
     const user: UserEntity = {
       id,
       email: dto.email,

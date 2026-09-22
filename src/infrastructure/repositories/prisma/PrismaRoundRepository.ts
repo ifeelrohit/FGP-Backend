@@ -10,7 +10,7 @@ import {
   GameRoundEntity,
   CreateRoundDto,
 } from '../interfaces/IRoundRepository.ts';
-import { BadRequestError, NotFoundError } from '../../../shared/errors/index.ts';
+import { BadRequestError, NotFoundError, RoundLifecycleError } from '../../../shared/errors/index.ts';
 import { RoundStatus } from '../../../shared/types/index.ts';
 import { isValidRoundTransition } from '../../../shared/constants/rounds.ts';
 
@@ -67,7 +67,7 @@ export class PrismaRoundRepository implements IRoundRepository {
     }
 
     if (!isValidRoundTransition(current.status, targetStatus)) {
-      throw new BadRequestError(
+      throw new RoundLifecycleError(
         `Invalid round lifecycle transition from '${current.status}' to '${targetStatus}'`
       );
     }

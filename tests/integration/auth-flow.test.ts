@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../src/app/app.ts';
-import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
+import { resetRepositoriesToProduction, initializeRepositoryContainer } from '../../src/infrastructure/repositories/index.ts';
 
 describe('Integration: Authentication & User Flow', () => {
-  beforeEach(() => {
-    setRepositories(createInMemoryRepositories());
+  beforeEach(async () => {
+    resetRepositoriesToProduction();
+    await initializeRepositoryContainer();
   });
 
   it('should register a player, log in, and access protected /me', async () => {

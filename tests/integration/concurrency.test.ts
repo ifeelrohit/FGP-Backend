@@ -2,19 +2,19 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { roundService } from '../../src/modules/rounds/roundService.ts';
 import { settlementService } from '../../src/modules/settlements/settlementService.ts';
 import { ledgerService } from '../../src/modules/ledger/ledgerService.ts';
-import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
+import { resetRepositoriesToProduction, initializeRepositoryContainer } from '../../src/infrastructure/repositories/index.ts';
 import { ConflictError, InsufficientBalanceError } from '../../src/shared/errors/index.ts';
 
 describe('Concurrency & Invariant Integrity Test Suite', () => {
-  const userId = 'concurrent-test-player-001';
-
   beforeEach(async () => {
-    setRepositories(createInMemoryRepositories());
-    // Initial balance: 10,000
-    await ledgerService.getBalance(userId);
+    resetRepositoriesToProduction();
+    await initializeRepositoryContainer();
   });
 
   it('Scenario 1A: two simultaneous distinct entries from the same user succeed atomically with exact balance deduction', async () => {
+    const userId = 'concurrent-player-1a';
+    await ledgerService.getBalance(userId);
+
     const round = await roundService.createRound('dice');
 
     const [res1, res2] = await Promise.all([
@@ -50,6 +50,9 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
   });
 
   it('Scenario 1: simultaneous duplicate entry requests with identical idempotencyKey produce exactly 1 entry and 1 debit', async () => {
+    const userId = 'concurrent-player-1';
+    await ledgerService.getBalance(userId);
+
     const round = await roundService.createRound('dice');
     const idempotencyKey = 'idemp-concurrent-entry-001';
 
@@ -85,6 +88,9 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
   });
 
   it('Scenario 2: simultaneous settlement requests for the same entry produce exactly 1 reward disbursement', async () => {
+    const userId = 'concurrent-player-2';
+    await ledgerService.getBalance(userId);
+
     const round = await roundService.createRound('dice');
     const entry = await settlementService.submitEntry({
       userId,
@@ -137,6 +143,9 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
   });
 
   it('Scenario 3: simultaneous cashout requests for the same crash entry produce exactly 1 cashout settlement and no duplicate reward', async () => {
+    const userId = 'concurrent-player-3';
+    await ledgerService.getBalance(userId);
+
     const round = await roundService.createRound('crash');
     const entry = await settlementService.submitEntry({
       userId,
@@ -180,6 +189,9 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
   });
 
   it('Scenario 4: duplicate idempotency keys across concurrent ledger transactions return the single existing mutation', async () => {
+    const userId = 'concurrent-player-4';
+    await ledgerService.getBalance(userId);
+
     const idempotencyKey = 'shared-idemp-key-999';
 
     // 10 concurrent debit requests with the same idempotency key
@@ -206,6 +218,9 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
   });
 
   it('Scenario 5: concurrent balance debits exceeding account balance enforce atomic balance integrity with no negative balance', async () => {
+    const userId = 'concurrent-player-5';
+    await ledgerService.getBalance(userId);
+
     // Initial balance is 10,000.
     // Attempt 15 concurrent debits of 1,000 each (total 15,000 > 10,000).
     const attempts = Array.from({ length: 15 }).map(async (_, index) => {
