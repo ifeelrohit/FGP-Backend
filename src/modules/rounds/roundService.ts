@@ -38,8 +38,14 @@ export class RoundService {
 
   public async createRound(gameId: string): Promise<GameRoundEntity> {
     const existingActive = await this.getActiveRound(gameId);
-    if (existingActive) {
-      return existingActive;
+    if (existingActive && existingActive.status === 'OPEN') {
+      const openedAtTime = existingActive.openedAt ? new Date(existingActive.openedAt).getTime() : 0;
+      const durationSeconds =
+        (existingActive.configSnapshot?.timingConfig as any)?.roundDurationSeconds ?? 30;
+      const isExpired = openedAtTime > 0 && Date.now() - openedAtTime >= durationSeconds * 1000;
+      if (!isExpired) {
+        return existingActive;
+      }
     }
 
     // 1. Snapshot the exact active configuration version

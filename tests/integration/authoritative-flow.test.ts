@@ -56,6 +56,12 @@ describe('Authoritative Lifecycle & Engine Integration Flow', () => {
           payload: { target: 4 },
         })
       ).rejects.toThrow(ConflictError);
+
+      // Clean up lifecycle: progress round to completion so game is not left in locked state
+      await roundService.transitionRoundStatus(round.id, 'RESULT_PENDING');
+      await roundService.transitionRoundStatus(round.id, 'RESULT_DECLARED', { rolled: 4 });
+      await roundService.transitionRoundStatus(round.id, 'SETTLED');
+      await roundService.transitionRoundStatus(round.id, 'COMPLETED');
     });
   });
 
