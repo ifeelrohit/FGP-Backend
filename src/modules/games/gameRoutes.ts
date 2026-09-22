@@ -33,6 +33,7 @@ export const gameRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     if (!round) {
       round = await roundService.createRound(gameId);
     }
-    return reply.status(200).send(formatSuccess({ round }, request.requestId));
+    const sanitizedRound = roundService.sanitizeRound(round);
+    return reply.status(200).send(formatSuccess({ round: sanitizedRound }, request.requestId));
   });
 };

@@ -68,15 +68,29 @@ export class PrismaLedgerRepository implements ILedgerRepository {
     }
 
     return await prisma.$transaction(async (tx) => {
-      // Find the user's account
-      const account = await tx.virtualCreditAccount.findUnique({
-        where: { userId: dto.userId },
-      });
+      // Check idempotency inside transaction
+      if (dto.idempotencyKey) {
+        const existingTx = await tx.ledgerTransaction.findUnique({
+          where: { idempotencyKey: dto.idempotencyKey },
+        });
+        if (existingTx) {
+          return this.mapTransaction(existingTx);
+        }
+      }
 
-      if (!account) {
+      // Lock user's account using SELECT ... FOR UPDATE to guarantee concurrency safety and prevent lost updates
+      const accounts = await tx.$queryRaw<Array<{ id: string; userId: string; balance: number | string; lockedBalance: number | string }>>`
+        SELECT "id", "userId", "balance", "lockedBalance"
+        FROM "virtual_credit_accounts"
+        WHERE "userId" = ${dto.userId}
+        FOR UPDATE
+      `;
+
+      if (!accounts || accounts.length === 0) {
         throw new InsufficientBalanceError(`No virtual credit account found for user ${dto.userId}`);
       }
 
+      const account = accounts[0];
       const currentBalance = Number(account.balance);
       let newBalance = currentBalance;
 

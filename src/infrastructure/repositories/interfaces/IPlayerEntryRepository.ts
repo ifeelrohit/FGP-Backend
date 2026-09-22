@@ -51,8 +51,46 @@ export interface CreateSettlementDto {
   outcome?: Record<string, unknown>;
 }
 
+export interface CreateEntryWithDebitParams {
+  userId: string;
+  gameId: string;
+  roundId: string;
+  entryAmount: number;
+  payload: Record<string, unknown>;
+  idempotencyKey?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateEntryWithDebitResult {
+  entry: PlayerEntryEntity;
+  balanceBefore: number;
+  balanceAfter: number;
+  transactionId: string;
+  isIdempotent: boolean;
+}
+
+export interface SettleEntryWithRewardParams {
+  userId: string;
+  entryId: string;
+  status: SettlementStatus;
+  payoutMultiplier: number;
+  rewardAmount: number;
+  outcome?: Record<string, unknown>;
+  referenceType?: string;
+  idempotencyKey?: string;
+}
+
+export interface SettleEntryWithRewardResult {
+  settlement: SettlementEntity;
+  balanceBefore?: number;
+  balanceAfter?: number;
+  transactionId?: string;
+  isIdempotent: boolean;
+}
+
 export interface IPlayerEntryRepository {
   create(dto: CreatePlayerEntryDto): Promise<PlayerEntryEntity>;
+  createEntryWithDebit(params: CreateEntryWithDebitParams): Promise<CreateEntryWithDebitResult>;
   findById(id: string): Promise<PlayerEntryEntity | null>;
   findByIdempotencyKey(key: string): Promise<PlayerEntryEntity | null>;
   findByRoundAndUser(roundId: string, userId: string): Promise<PlayerEntryEntity[]>;
@@ -61,6 +99,7 @@ export interface IPlayerEntryRepository {
 
 export interface ISettlementRepository {
   create(dto: CreateSettlementDto): Promise<SettlementEntity>;
+  settleEntryWithReward(params: SettleEntryWithRewardParams): Promise<SettleEntryWithRewardResult>;
   findByEntryId(entryId: string): Promise<SettlementEntity | null>;
   listByRoundId(roundId: string): Promise<SettlementEntity[]>;
   listByUserId(userId: string, limit?: number): Promise<SettlementEntity[]>;

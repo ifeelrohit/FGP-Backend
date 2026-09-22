@@ -43,6 +43,10 @@ import {
   CreatePlayerEntryDto,
   SettlementEntity,
   CreateSettlementDto,
+  CreateEntryWithDebitParams,
+  CreateEntryWithDebitResult,
+  SettleEntryWithRewardParams,
+  SettleEntryWithRewardResult,
 } from '../interfaces/IPlayerEntryRepository.ts';
 import {
   IAuditRepository,
@@ -63,7 +67,7 @@ import {
   EntryStatus,
   SettlementStatus,
 } from '../../../shared/types/index.ts';
-import { InsufficientBalanceError, NotFoundError, BadRequestError } from '../../../shared/errors/index.ts';
+import { InsufficientBalanceError, NotFoundError, BadRequestError, ConflictError } from '../../../shared/errors/index.ts';
 import { isValidRoundTransition } from '../../../shared/constants/rounds.ts';
 
 export class InMemoryUserRepository implements IUserRepository {
@@ -557,6 +561,19 @@ export class InMemoryRoundRepository implements IRoundRepository {
 
 export class InMemoryPlayerEntryRepository implements IPlayerEntryRepository {
   public entries = new Map<string, PlayerEntryEntity>();
+  public virtualCreditRepo?: InMemoryVirtualCreditRepository;
+  public ledgerRepo?: InMemoryLedgerRepository;
+  public roundRepo?: InMemoryRoundRepository;
+
+  constructor(
+    virtualCreditRepo?: InMemoryVirtualCreditRepository,
+    ledgerRepo?: InMemoryLedgerRepository,
+    roundRepo?: InMemoryRoundRepository
+  ) {
+    this.virtualCreditRepo = virtualCreditRepo;
+    this.ledgerRepo = ledgerRepo;
+    this.roundRepo = roundRepo;
+  }
 
   public async create(dto: CreatePlayerEntryDto): Promise<PlayerEntryEntity> {
     if (dto.idempotencyKey) {
@@ -579,6 +596,99 @@ export class InMemoryPlayerEntryRepository implements IPlayerEntryRepository {
     };
     this.entries.set(id, entity);
     return entity;
+  }
+
+  public async createEntryWithDebit(params: CreateEntryWithDebitParams): Promise<CreateEntryWithDebitResult> {
+    // 1. Verify round exists and is OPEN
+    if (this.roundRepo) {
+      const round = await this.roundRepo.findById(params.roundId);
+      if (!round) {
+        throw new NotFoundError(`Round '${params.roundId}' not found`);
+      }
+      if (round.gameId !== params.gameId) {
+        throw new ConflictError(`Round '${params.roundId}' belongs to game '${round.gameId}', not '${params.gameId}'`);
+      }
+      if (round.status !== 'OPEN') {
+        throw new ConflictError(
+          `Round '${round.id}' is in status '${round.status}'. Entries are only accepted when round is OPEN.`
+        );
+      }
+    }
+
+    // 2. Idempotency check
+    if (params.idempotencyKey) {
+      const existing = await this.findByIdempotencyKey(params.idempotencyKey);
+      if (existing) {
+        const acct = this.virtualCreditRepo ? await this.virtualCreditRepo.findByUserId(params.userId) : null;
+        const bal = acct ? acct.balance : 0;
+        return {
+          entry: existing,
+          balanceBefore: bal,
+          balanceAfter: bal,
+          transactionId: '',
+          isIdempotent: true,
+        };
+      }
+    }
+
+    // 3. Atomically debit virtual credits
+    let balanceBefore = 0;
+    let balanceAfter = 0;
+    let transactionId = '';
+
+    if (this.virtualCreditRepo) {
+      const acc = await this.virtualCreditRepo.findByUserId(params.userId);
+      if (!acc) {
+        await this.virtualCreditRepo.createAccount(params.userId, 10000);
+      }
+    }
+
+    if (this.ledgerRepo) {
+      const tx = await this.ledgerRepo.executeTransaction({
+        userId: params.userId,
+        type: 'ENTRY',
+        amount: params.entryAmount,
+        referenceType: 'GAME_ROUND_ENTRY',
+        referenceId: params.roundId,
+        idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}-entry-debit` : undefined,
+        metadata: params.metadata,
+      });
+      balanceBefore = tx.balanceBefore;
+      balanceAfter = tx.balanceAfter;
+      transactionId = tx.id;
+    } else if (this.virtualCreditRepo) {
+      const acct = await this.virtualCreditRepo.findByUserId(params.userId);
+      if (!acct || acct.balance < params.entryAmount) {
+        throw new InsufficientBalanceError(`Insufficient virtual credits for entry`);
+      }
+      balanceBefore = acct.balance;
+      balanceAfter = balanceBefore - params.entryAmount;
+      acct.balance = balanceAfter;
+    }
+
+    // 4. Create confirmed PlayerEntry
+    const id = crypto.randomUUID();
+    const entity: PlayerEntryEntity = {
+      id,
+      userId: params.userId,
+      gameId: params.gameId,
+      roundId: params.roundId,
+      entryAmount: params.entryAmount,
+      payload: params.payload,
+      status: 'CONFIRMED',
+      idempotencyKey: params.idempotencyKey,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.entries.set(id, entity);
+
+    return {
+      entry: entity,
+      balanceBefore,
+      balanceAfter,
+      transactionId,
+      isIdempotent: false,
+    };
   }
 
   public async findById(id: string): Promise<PlayerEntryEntity | null> {
@@ -613,6 +723,22 @@ export class InMemoryPlayerEntryRepository implements IPlayerEntryRepository {
 
 export class InMemorySettlementRepository implements ISettlementRepository {
   public settlements = new Map<string, SettlementEntity>();
+  public virtualCreditRepo?: InMemoryVirtualCreditRepository;
+  public ledgerRepo?: InMemoryLedgerRepository;
+  public roundRepo?: InMemoryRoundRepository;
+  public entryRepo?: InMemoryPlayerEntryRepository;
+
+  constructor(
+    virtualCreditRepo?: InMemoryVirtualCreditRepository,
+    ledgerRepo?: InMemoryLedgerRepository,
+    roundRepo?: InMemoryRoundRepository,
+    entryRepo?: InMemoryPlayerEntryRepository
+  ) {
+    this.virtualCreditRepo = virtualCreditRepo;
+    this.ledgerRepo = ledgerRepo;
+    this.roundRepo = roundRepo;
+    this.entryRepo = entryRepo;
+  }
 
   public async create(dto: CreateSettlementDto): Promise<SettlementEntity> {
     const id = crypto.randomUUID();
@@ -630,6 +756,93 @@ export class InMemorySettlementRepository implements ISettlementRepository {
     };
     this.settlements.set(id, entity);
     return entity;
+  }
+
+  public async settleEntryWithReward(params: SettleEntryWithRewardParams): Promise<SettleEntryWithRewardResult> {
+    // 1. Find entry
+    const entry = this.entryRepo ? await this.entryRepo.findById(params.entryId) : null;
+    if (!entry) {
+      throw new NotFoundError(`Player entry '${params.entryId}' not found`);
+    }
+    if (entry.userId !== params.userId) {
+      throw new BadRequestError('Entry does not belong to the requesting player');
+    }
+
+    // 2. Check existing settlement (idempotent)
+    const existing = await this.findByEntryId(params.entryId);
+    if (existing) {
+      const acct = this.virtualCreditRepo ? await this.virtualCreditRepo.findByUserId(params.userId) : null;
+      const bal = acct ? acct.balance : 0;
+      return {
+        settlement: existing,
+        balanceBefore: bal,
+        balanceAfter: bal,
+        isIdempotent: true,
+      };
+    }
+
+    // 3. Verify entry is CONFIRMED
+    if (entry.status !== 'CONFIRMED') {
+      throw new ConflictError(`Entry '${entry.id}' is not in CONFIRMED state (current: ${entry.status})`);
+    }
+
+    // 4. Reward credits if WON
+    let balanceBefore: number | undefined;
+    let balanceAfter: number | undefined;
+    let transactionId: string | undefined;
+
+    if (this.virtualCreditRepo) {
+      const acc = await this.virtualCreditRepo.findByUserId(params.userId);
+      if (!acc) {
+        await this.virtualCreditRepo.createAccount(params.userId, 10000);
+      }
+    }
+
+    if (params.status === 'WON' && params.rewardAmount > 0 && this.ledgerRepo) {
+      const tx = await this.ledgerRepo.executeTransaction({
+        userId: params.userId,
+        type: 'REWARD',
+        amount: params.rewardAmount,
+        referenceType: params.referenceType || 'GAME_ROUND_REWARD',
+        referenceId: entry.roundId,
+        idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}-reward` : undefined,
+        metadata: params.outcome,
+      });
+      balanceBefore = tx.balanceBefore;
+      balanceAfter = tx.balanceAfter;
+      transactionId = tx.id;
+    } else if (this.virtualCreditRepo) {
+      const acct = await this.virtualCreditRepo.findByUserId(params.userId);
+      balanceBefore = acct ? acct.balance : 0;
+      balanceAfter = balanceBefore;
+    }
+
+    // 5. Create Settlement
+    const id = crypto.randomUUID();
+    const settlementEntity: SettlementEntity = {
+      id,
+      entryId: entry.id,
+      roundId: entry.roundId,
+      userId: params.userId,
+      gameId: entry.gameId,
+      status: params.status,
+      payoutMultiplier: params.payoutMultiplier,
+      rewardAmount: params.rewardAmount,
+      outcome: params.outcome,
+      settledAt: new Date(),
+    };
+    this.settlements.set(id, settlementEntity);
+
+    // 6. Update entry status
+    await this.entryRepo?.updateStatus(entry.id, 'SETTLED');
+
+    return {
+      settlement: settlementEntity,
+      balanceBefore,
+      balanceAfter,
+      transactionId,
+      isIdempotent: false,
+    };
   }
 
   public async findByEntryId(entryId: string): Promise<SettlementEntity | null> {

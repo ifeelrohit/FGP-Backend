@@ -87,63 +87,38 @@ export class SettlementService {
       );
     }
 
-    // 2. Idempotency check for player entry
-    if (idempotencyKey) {
-      const existingEntry = await this.entryRepo.findByIdempotencyKey(idempotencyKey);
-      if (existingEntry) {
-        const balance = await ledgerService.getBalance(userId);
-        return {
-          entryId: existingEntry.id,
-          roundId: existingEntry.roundId,
-          gameId: existingEntry.gameId,
-          userId: existingEntry.userId,
-          entryAmount: existingEntry.entryAmount,
-          balanceAfter: balance.balance,
-          createdAt: existingEntry.createdAt.toISOString(),
-        };
-      }
-    }
-
-    // 3. Atomically debit entry amount from player virtual ledger
-    const entryTx = await ledgerService.recordTransaction({
-      userId,
-      type: 'ENTRY',
-      amount: entryAmount,
-      referenceType: 'GAME_ROUND_ENTRY',
-      referenceId: round.id,
-      idempotencyKey: idempotencyKey ? `${idempotencyKey}-entry-debit` : undefined,
-      metadata: { gameId, roundId: round.id, payload },
-    });
-
-    // 4. Create durable PlayerEntry record
-    const entry = await this.entryRepo.create({
+    // 2. Submit entry atomically with debit
+    const result = await this.entryRepo.createEntryWithDebit({
       userId,
       gameId,
       roundId: round.id,
       entryAmount,
       payload,
       idempotencyKey,
+      metadata: { gameId, roundId: round.id, payload },
     });
 
-    eventBus.publish('PLAYER_ENTRY_CREATED', {
-      entryId: entry.id,
-      roundId: round.id,
-      gameId,
-      userId,
-      entryAmount,
-      transactionId: entryTx.id,
-    });
+    if (!result.isIdempotent) {
+      eventBus.publish('PLAYER_ENTRY_CREATED', {
+        entryId: result.entry.id,
+        roundId: round.id,
+        gameId,
+        userId,
+        entryAmount,
+        transactionId: result.transactionId,
+      });
+    }
 
     return {
-      id: entry.id,
-      entryId: entry.id,
+      id: result.entry.id,
+      entryId: result.entry.id,
       roundId: round.id,
       gameId,
       userId,
-      status: entry.status,
+      status: result.entry.status,
       entryAmount,
-      balanceAfter: entryTx.balanceAfter,
-      createdAt: entry.createdAt.toISOString(),
+      balanceAfter: result.balanceAfter,
+      createdAt: result.entry.createdAt.toISOString(),
     };
   }
 
@@ -200,61 +175,44 @@ export class SettlementService {
     // Multiplier grows exponentially: 1.01 * e^(0.06 * t)
     const currentMultiplier = Math.round(Math.pow(Math.E, 0.06 * elapsedSeconds) * 100) / 100;
 
+    // Check if auto-cashout was configured in entry payload
+    const autoCashout = entry.payload?.autoCashoutMultiplier ? Number(entry.payload.autoCashoutMultiplier) : undefined;
+    const cashoutMultiplier = (autoCashout && autoCashout <= currentMultiplier) ? autoCashout : currentMultiplier;
+
     // 4. Determine win/loss against the round's single authoritative crash point
-    const won = currentMultiplier < crashPoint;
-    const payoutMultiplier = won ? currentMultiplier : 0;
+    const won = cashoutMultiplier <= crashPoint;
+    const payoutMultiplier = won ? cashoutMultiplier : 0;
     const rewardAmount = won ? Math.floor(entry.entryAmount * payoutMultiplier * 100) / 100 : 0;
 
-    let balanceAfter = (await ledgerService.getBalance(userId)).balance;
-
-    if (won && rewardAmount > 0) {
-      const rewardTx = await ledgerService.recordTransaction({
-        userId,
-        type: 'REWARD',
-        amount: rewardAmount,
-        referenceType: 'CRASH_CASHOUT_REWARD',
-        referenceId: round.id,
-        idempotencyKey: idempotencyKey ? `${idempotencyKey}-crash-reward` : undefined,
-        metadata: {
-          roundId: round.id,
-          entryId: entry.id,
-          crashPoint,
-          multiplier: payoutMultiplier,
-        },
-      });
-      balanceAfter = rewardTx.balanceAfter;
-    }
-
-    // 5. Persist durable Settlement record
-    const settlement = await this.settlementRepo.create({
-      entryId: entry.id,
-      roundId: round.id,
+    // 5. Atomically settle entry and credit reward (if won) in a single transaction
+    const settleResult = await this.settlementRepo.settleEntryWithReward({
       userId,
-      gameId: entry.gameId,
+      entryId: entry.id,
       status: won ? 'WON' : 'LOST',
       payoutMultiplier,
       rewardAmount,
       outcome: {
         crashPoint,
         authoritativeMultiplier: currentMultiplier,
+        cashoutMultiplier,
         won,
       },
+      referenceType: 'CRASH_CASHOUT_REWARD',
+      idempotencyKey,
     });
 
-    await this.entryRepo.updateStatus(entry.id, 'SETTLED');
-
     return {
-      entryId: settlement.entryId,
-      roundId: settlement.roundId,
-      gameId: settlement.gameId,
+      entryId: settleResult.settlement.entryId,
+      roundId: settleResult.settlement.roundId,
+      gameId: settleResult.settlement.gameId,
       status: 'SETTLED',
-      settlementStatus: settlement.status,
+      settlementStatus: settleResult.settlement.status,
       won,
       payoutMultiplier,
       rewardAmount,
-      balanceAfter,
-      outcome: settlement.outcome || {},
-      settledAt: settlement.settledAt.toISOString(),
+      balanceAfter: settleResult.balanceAfter ?? 0,
+      outcome: (settleResult.settlement.outcome || {}) as Record<string, unknown>,
+      settledAt: settleResult.settlement.settledAt.toISOString(),
     };
   }
 
@@ -321,41 +279,19 @@ export class SettlementService {
       }
     );
 
-    // 4. If user won, credit rewards via ledger
-    let finalBalance = entryReceipt.balanceAfter;
-    if (resolution.won && resolution.rewardAmount > 0) {
-      const rewardTx = await ledgerService.recordTransaction({
-        userId,
-        type: 'REWARD',
-        amount: resolution.rewardAmount,
-        referenceType: 'GAME_ROUND_REWARD',
-        referenceId: round.id,
-        idempotencyKey: idempotencyKey ? `${idempotencyKey}-reward` : undefined,
-        metadata: {
-          gameId,
-          roundId: round.id,
-          multiplier: resolution.payoutMultiplier,
-          outcome: resolution.outcome,
-        },
-      });
-      finalBalance = rewardTx.balanceAfter;
-    }
-
-    // 5. Persist durable Settlement
-    await this.settlementRepo.create({
-      entryId: entryReceipt.entryId,
-      roundId: round.id,
+    // 4. Atomically settle entry and credit reward (if won) in a single transaction
+    const settleResult = await this.settlementRepo.settleEntryWithReward({
       userId,
-      gameId,
+      entryId: entryReceipt.entryId,
       status: resolution.won ? 'WON' : 'LOST',
       payoutMultiplier: resolution.payoutMultiplier,
       rewardAmount: resolution.rewardAmount,
       outcome: resolution.outcome,
+      referenceType: 'GAME_ROUND_REWARD',
+      idempotencyKey: idempotencyKey ? `${idempotencyKey}-settle` : undefined,
     });
 
-    await this.entryRepo.updateStatus(entryReceipt.entryId, 'SETTLED');
-
-    // 6. Complete round lifecycle strictly:
+    // 5. Complete round lifecycle strictly:
     // OPEN -> LOCKED -> RESULT_PENDING -> RESULT_DECLARED -> SETTLED -> COMPLETED
     await roundService.declareResult(round.id, resolution.outcome);
     await roundService.transitionRoundStatus(round.id, 'SETTLED');
@@ -368,9 +304,9 @@ export class SettlementService {
       won: resolution.won,
       payoutMultiplier: resolution.payoutMultiplier,
       rewardAmount: resolution.rewardAmount,
-      balanceAfter: finalBalance,
+      balanceAfter: settleResult.balanceAfter ?? entryReceipt.balanceAfter,
       outcome: resolution.outcome,
-      settledAt: new Date().toISOString(),
+      settledAt: settleResult.settlement.settledAt.toISOString(),
     };
   }
 }

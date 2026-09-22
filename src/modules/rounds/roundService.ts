@@ -156,6 +156,22 @@ export class RoundService {
   public async listRounds(gameId?: string, limit = 20): Promise<GameRoundEntity[]> {
     return this.repo.listRounds(gameId, limit);
   }
+
+  /**
+   * Sanitizes round entity for public/player-facing exposure (P0-8).
+   * Before RESULT_DECLARED, serverSeed (and crashPoint) are strictly confidential.
+   * Only revealed once RESULT_DECLARED, SETTLED, or COMPLETED for provably fair verification.
+   */
+  public sanitizeRound(round: GameRoundEntity): GameRoundEntity {
+    const isRevealed = ['RESULT_DECLARED', 'SETTLED', 'COMPLETED'].includes(round.status);
+    if (isRevealed) {
+      return round;
+    }
+    const sanitized = { ...round };
+    delete (sanitized as { serverSeed?: string }).serverSeed;
+    delete (sanitized as { crashPoint?: number | string }).crashPoint;
+    return sanitized;
+  }
 }
 
 export const roundService = new RoundService();

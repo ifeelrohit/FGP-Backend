@@ -72,21 +72,51 @@ const productionContainer: RepositoryContainer = {
   announcementRepo: new PrismaAnnouncementRepository(),
 };
 
-// Initial in-memory container for local tests & offline development
+// Default in-memory container for resilient local development & preview
 const defaultInMemory = createInMemoryRepositories();
-
-// Default to resilient in-memory container until database connection is verified
 let activeContainer: RepositoryContainer = defaultInMemory;
+let hasCustomRepositories = false;
 
 export async function initializeRepositoryContainer(): Promise<RepositoryContainer> {
-  const reachable = await isDatabaseReachable();
-  if (reachable) {
+  const isExplicitMemoryMode = process.env.REPOSITORY_MODE === 'memory';
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (isProduction) {
+    if (isExplicitMemoryMode) {
+      throw new Error(
+        'FATAL: REPOSITORY_MODE=memory is strictly forbidden in production. Production must use PostgreSQL / Prisma repositories.'
+      );
+    }
+    const dbReachable = await isDatabaseReachable();
+    if (!dbReachable) {
+      logger.error('CRITICAL: PostgreSQL database is unreachable at production startup.');
+    }
+    activeContainer = productionContainer;
+    return activeContainer;
+  }
+
+  if (hasCustomRepositories) {
+    return activeContainer;
+  }
+
+  if (isExplicitMemoryMode) {
+    activeContainer = createInMemoryRepositories();
+    logger.warn('Running with explicit REPOSITORY_MODE=memory test adapter (non-production only)');
+    return activeContainer;
+  }
+
+  // Check live PostgreSQL reachability
+  const dbReachable = await isDatabaseReachable();
+  if (dbReachable) {
     activeContainer = productionContainer;
     logger.info('Database server reachable at port 5432; running in authoritative PostgreSQL (Prisma) mode');
   } else {
     activeContainer = defaultInMemory;
-    logger.info('Database server not reachable at port 5432; running in resilient in-memory mode');
+    logger.warn(
+      'Database server at localhost:5432 is unreachable; running in resilient in-memory mode for development/preview'
+    );
   }
+
   return activeContainer;
 }
 
@@ -96,10 +126,12 @@ export function getRepositories(): RepositoryContainer {
 
 export function setRepositories(container: RepositoryContainer): void {
   activeContainer = container;
+  hasCustomRepositories = true;
 }
 
 export function resetRepositoriesToProduction(): void {
   activeContainer = productionContainer;
+  hasCustomRepositories = false;
 }
 
 export function createInMemoryRepositories(): RepositoryContainer {
@@ -113,8 +145,8 @@ export function createInMemoryRepositories(): RepositoryContainer {
   const gameRepo = new InMemoryGameRepository();
   const configRepo = new InMemoryGameConfigurationRepository();
   const roundRepo = new InMemoryRoundRepository();
-  const entryRepo = new InMemoryPlayerEntryRepository();
-  const settlementRepo = new InMemorySettlementRepository();
+  const entryRepo = new InMemoryPlayerEntryRepository(virtualCreditRepo, ledgerRepo, roundRepo);
+  const settlementRepo = new InMemorySettlementRepository(virtualCreditRepo, ledgerRepo, roundRepo, entryRepo);
   const auditRepo = new InMemoryAuditRepository();
   const announcementRepo = new InMemoryAnnouncementRepository();
 

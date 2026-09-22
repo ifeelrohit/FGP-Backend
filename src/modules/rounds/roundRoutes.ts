@@ -15,14 +15,16 @@ export const roundRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
   fastify.get('/rounds', async (request, reply) => {
     const query = request.query as { gameId?: string; limit?: string };
     const limit = query.limit ? Number.parseInt(query.limit, 10) : 20;
-    const rounds = await roundService.listRounds(query.gameId, limit);
+    const rawRounds = await roundService.listRounds(query.gameId, limit);
+    const rounds = rawRounds.map((r) => roundService.sanitizeRound(r));
     return reply.status(200).send(formatSuccess({ rounds, count: rounds.length }, request.requestId));
   });
 
   // Get specific round
   fastify.get('/rounds/:roundId', async (request, reply) => {
     const { roundId } = RoundIdParamSchema.parse(request.params);
-    const round = await roundService.getRoundById(roundId);
+    const rawRound = await roundService.getRoundById(roundId);
+    const round = roundService.sanitizeRound(rawRound);
     return reply.status(200).send(formatSuccess({ round }, request.requestId));
   });
 
@@ -33,11 +35,12 @@ export const roundRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
     async (request, reply) => {
       const { roundId } = RoundIdParamSchema.parse(request.params);
       const body = RoundTransitionSchema.parse(request.body);
-      const round = await roundService.transitionRoundStatus(
+      const rawRound = await roundService.transitionRoundStatus(
         roundId,
         body.targetStatus as RoundStatus,
         body.reason ? { reason: body.reason } : undefined
       );
+      const round = roundService.sanitizeRound(rawRound);
       return reply.status(200).send(formatSuccess({ round }, request.requestId));
     }
   );

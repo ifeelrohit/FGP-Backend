@@ -15,6 +15,7 @@ import { websocketPlugin } from './plugins/websocket.ts';
 import { checkDatabaseConnection } from '../infrastructure/database/prisma.ts';
 import { initializeRepositoryContainer } from '../infrastructure/repositories/index.ts';
 import { wsManager } from '../infrastructure/websocket/websocketManager.ts';
+import { engineRegistry } from '../game-engine/engineRegistry.ts';
 import { authRoutes } from '../modules/auth/authRoutes.ts';
 import { gameRoutes } from '../modules/games/gameRoutes.ts';
 import { roundRoutes } from '../modules/rounds/roundRoutes.ts';
@@ -55,24 +56,29 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/ready', async (_req, reply) => {
     const dbCheck = await checkDatabaseConnection();
     const wsClients = wsManager.getConnectedClientsCount();
+    const registeredEngines = engineRegistry.getAllEngines();
+    const isEnginesReady = registeredEngines.length >= 18;
 
-    // In isolated local development without external PostgreSQL, system gracefully falls back to inMemoryStore
-    const isReady = true;
+    const isExplicitMemoryMode = process.env.REPOSITORY_MODE === 'memory' && config.NODE_ENV !== 'production';
+    const isDbReady = dbCheck.connected || isExplicitMemoryMode;
+    const isReady = isDbReady && isEnginesReady;
 
     return reply.status(isReady ? 200 : 503).send({
-      status: isReady ? 'ready' : 'unhealthy',
+      status: isReady ? 'ready' : 'unready',
       subsystems: {
         database: {
           connected: dbCheck.connected,
           latencyMs: dbCheck.latencyMs,
-          mode: dbCheck.connected ? 'postgresql' : 'in_memory_resilient_fallback',
+          mode: isExplicitMemoryMode ? 'memory_test_adapter' : 'postgresql',
+          ...(dbCheck.error ? { error: dbCheck.error } : {}),
         },
         websocket: {
           activeConnections: wsClients,
         },
         gameEngines: {
-          registered: 18,
+          registered: registeredEngines.length,
           authoritative: true,
+          ready: isEnginesReady,
         },
       },
       timestamp: new Date().toISOString(),

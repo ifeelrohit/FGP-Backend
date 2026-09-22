@@ -23,4 +23,57 @@ describe('Round Lifecycle State Machine', () => {
     expect(isValidRoundTransition('COMPLETED', 'OPEN')).toBe(false);
     expect(isValidRoundTransition('SETTLED', 'OPEN')).toBe(false);
   });
+
+  describe('P0-8: Server Seed Security & Provably Fair Commitment', () => {
+    it('should conceal serverSeed and crashPoint before RESULT_DECLARED', async () => {
+      const { roundService } = await import('../../src/modules/rounds/roundService.ts');
+      const testRound: any = {
+        id: 'round-123',
+        gameId: 'crash',
+        status: 'OPEN',
+        serverSeed: 'super-secret-seed-12345',
+        serverSeedHash: 'hash-of-super-secret-seed',
+        crashPoint: 3.45,
+      };
+
+      const sanitizedOpen = roundService.sanitizeRound(testRound);
+      expect(sanitizedOpen.serverSeed).toBeUndefined();
+      expect(sanitizedOpen.crashPoint).toBeUndefined();
+      expect(sanitizedOpen.serverSeedHash).toBe('hash-of-super-secret-seed');
+
+      const lockedRound = { ...testRound, status: 'LOCKED' };
+      const sanitizedLocked = roundService.sanitizeRound(lockedRound);
+      expect(sanitizedLocked.serverSeed).toBeUndefined();
+      expect(sanitizedLocked.crashPoint).toBeUndefined();
+
+      const pendingRound = { ...testRound, status: 'RESULT_PENDING' };
+      const sanitizedPending = roundService.sanitizeRound(pendingRound);
+      expect(sanitizedPending.serverSeed).toBeUndefined();
+      expect(sanitizedPending.crashPoint).toBeUndefined();
+    });
+
+    it('should reveal serverSeed and crashPoint once RESULT_DECLARED, SETTLED, or COMPLETED', async () => {
+      const { roundService } = await import('../../src/modules/rounds/roundService.ts');
+      const testRound: any = {
+        id: 'round-123',
+        gameId: 'crash',
+        status: 'RESULT_DECLARED',
+        serverSeed: 'super-secret-seed-12345',
+        serverSeedHash: 'hash-of-super-secret-seed',
+        crashPoint: 3.45,
+      };
+
+      const sanitizedDeclared = roundService.sanitizeRound(testRound);
+      expect(sanitizedDeclared.serverSeed).toBe('super-secret-seed-12345');
+      expect(sanitizedDeclared.crashPoint).toBe(3.45);
+
+      const settledRound = { ...testRound, status: 'SETTLED' };
+      const sanitizedSettled = roundService.sanitizeRound(settledRound);
+      expect(sanitizedSettled.serverSeed).toBe('super-secret-seed-12345');
+
+      const completedRound = { ...testRound, status: 'COMPLETED' };
+      const sanitizedCompleted = roundService.sanitizeRound(completedRound);
+      expect(sanitizedCompleted.serverSeed).toBe('super-secret-seed-12345');
+    });
+  });
 });
