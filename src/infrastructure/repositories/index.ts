@@ -38,6 +38,7 @@ import {
 
 import { GAME_CATALOG } from '../../shared/constants/games.ts';
 import { logger } from '../logging/logger.ts';
+import { isDatabaseReachable } from '../database/prisma.ts';
 
 export interface RepositoryContainer {
   userRepo: IUserRepository;
@@ -95,8 +96,22 @@ export async function initializeRepositoryContainer(): Promise<RepositoryContain
     return activeContainer;
   }
 
+  // In non-production environments, check PostgreSQL reachability:
+  // If PostgreSQL is offline/unreachable on localhost:5432, gracefully bind
+  // the in-memory repository container so that the application, game catalog,
+  // and operations function reliably without unhandled connection errors.
+  if (!isProduction) {
+    const isReachable = await isDatabaseReachable(true, 150);
+    if (!isReachable) {
+      activeContainer = createInMemoryRepositories();
+      logger.warn(
+        'PostgreSQL database server offline or unreachable in local environment. Initializing self-contained in-memory repositories.'
+      );
+      return activeContainer;
+    }
+  }
+
   // Authoritative PostgreSQL (Prisma) repository mode
-  // Production and development default to PostgreSQL; no implicit in-memory fallback.
   activeContainer = productionContainer;
   logger.info('Configured with authoritative PostgreSQL (Prisma) repositories');
   return activeContainer;

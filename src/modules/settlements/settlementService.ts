@@ -56,6 +56,7 @@ export interface PlayerEntryReceipt {
 
 export interface SettlementReceipt {
   id?: string;
+  settlementId?: string;
   entryId?: string;
   roundId: string;
   gameId: string;
@@ -235,6 +236,8 @@ export class SettlementService {
     });
 
     return {
+      id: settleResult.settlement.id,
+      settlementId: settleResult.settlement.id,
       entryId: settleResult.settlement.entryId,
       roundId: settleResult.settlement.roundId,
       gameId: settleResult.settlement.gameId,
@@ -332,6 +335,8 @@ export class SettlementService {
     await roundService.transitionRoundStatus(round.id, 'COMPLETED');
 
     return {
+      id: settleResult.settlement.id,
+      settlementId: settleResult.settlement.id,
       entryId: entryReceipt.entryId,
       roundId: round.id,
       gameId,

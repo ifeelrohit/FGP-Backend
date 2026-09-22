@@ -14,6 +14,7 @@ export interface CashoutEvaluationParams {
   roundCrashPoint?: number | null;
   elapsedSeconds?: number;
   requestedAutoCashoutMultiplier?: number;
+  config?: Record<string, any>;
 }
 
 export interface CrashEvaluationResult {
@@ -35,9 +36,9 @@ export class CrashEngine extends BaseGameEngine {
 
   /**
    * Authoritative, deterministic crash multiplier generation using provably fair SHA-256 hash.
-   * Single source of truth across all services.
+   * Single source of truth across all services. Driven by configuration (RTP / house edge / maxPayout).
    */
-  public generateAuthoritativeCrashPoint(serverSeed: string): number {
+  public generateAuthoritativeCrashPoint(serverSeed: string, config?: Record<string, any>): number {
     const hash = crypto.createHash('sha256').update(serverSeed).digest('hex');
     const hexSlice = hash.substring(0, 8);
     const intVal = Number.parseInt(hexSlice, 16);
@@ -47,20 +48,25 @@ export class CrashEngine extends BaseGameEngine {
       return 1.0;
     }
 
-    // Standard inverse house edge curve (0.97 RTP)
-    const floatVal = (intVal % 1000000) / 1000000;
-    const crashMultiplier = Math.floor((0.97 / (1 - floatVal)) * 100) / 100;
+    const rewardConfig = (config?.rewardConfig || {}) as Record<string, any>;
+    const rtp = rewardConfig.rtp ?? (rewardConfig.houseEdge !== undefined ? 1 - rewardConfig.houseEdge : 0.97);
+    const maxMultiplier = rewardConfig.maxPayoutMultiplier ?? 250.0;
 
-    return Math.max(1.0, Math.min(crashMultiplier, 250.0));
+    // Standard inverse house edge curve
+    const floatVal = (intVal % 1000000) / 1000000;
+    const crashMultiplier = Math.floor((rtp / (1 - floatVal)) * 100) / 100;
+
+    return Math.max(1.0, Math.min(crashMultiplier, maxMultiplier));
   }
 
   /**
    * Authoritative multiplier curve based on elapsed round duration.
-   * Single source of truth: e^(0.06 * elapsedSeconds).
+   * Single source of truth: e^(growthRate * elapsedSeconds). Driven by configuration.
    */
-  public calculateCurrentMultiplier(elapsedSeconds: number): number {
+  public calculateCurrentMultiplier(elapsedSeconds: number, config?: Record<string, any>): number {
     const elapsed = Math.max(0, elapsedSeconds);
-    const raw = Math.pow(Math.E, 0.06 * elapsed);
+    const growthRate = config?.ruleConfig?.growthRate ?? 0.06;
+    const raw = Math.pow(Math.E, growthRate * elapsed);
     return Math.round(raw * 100) / 100;
   }
 
@@ -81,7 +87,7 @@ export class CrashEngine extends BaseGameEngine {
     }
 
     const crashPoint = Number(params.roundCrashPoint);
-    const currentMultiplier = this.calculateCurrentMultiplier(params.elapsedSeconds ?? 0);
+    const currentMultiplier = this.calculateCurrentMultiplier(params.elapsedSeconds ?? 0, params.config);
 
     // Client can only request an autoCashoutMultiplier target; server validates if reached
     let effectiveMultiplier = currentMultiplier;
@@ -146,6 +152,7 @@ export class CrashEngine extends BaseGameEngine {
       roundCrashPoint,
       elapsedSeconds,
       requestedAutoCashoutMultiplier: requestedAutoCashout,
+      config: context.config,
     });
 
     return {

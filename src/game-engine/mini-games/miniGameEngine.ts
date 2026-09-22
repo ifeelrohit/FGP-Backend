@@ -14,23 +14,29 @@ export class MinesEngine extends BaseGameEngine {
   readonly gameId = 'mines';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const mineCount = Math.min(24, Math.max(1, Number(context.payload.mineCount ?? 3)));
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const boardSize = ruleConfig.boardSize ?? 25;
+    const defaultMines = ruleConfig.mineCount ?? 3;
+    const mineCount = Math.min(boardSize - 1, Math.max(1, Number(context.payload.mineCount ?? defaultMines)));
     const selectedTiles = (Array.isArray(context.payload.tiles)
       ? (context.payload.tiles as number[])
       : [0, 1, 2]
-    ).slice(0, 25);
+    ).slice(0, boardSize);
 
-    // Generate authoritative 25-cell minefield
+    // Generate authoritative minefield driven by boardSize
     const mineIndices = new Set<number>();
     while (mineIndices.size < mineCount) {
-      mineIndices.add(crypto.randomInt(0, 25));
+      mineIndices.add(crypto.randomInt(0, boardSize));
     }
 
     const hitMine = selectedTiles.some((tile) => mineIndices.has(tile));
     const won = !hitMine && selectedTiles.length > 0;
 
-    // Multiplier scales with gems revealed
-    const multiplier = won ? Math.floor((1.0 + selectedTiles.length * 0.35) * 100) / 100 : 0;
+    // Multiplier scales with gems revealed driven by rewardConfig.gemMultiplierFactor
+    const gemFactor = rewardConfig.gemMultiplierFactor ?? 0.35;
+    const multiplier = won ? Math.floor((1.0 + selectedTiles.length * gemFactor) * 100) / 100 : 0;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -56,7 +62,11 @@ export class PlinkoEngine extends BaseGameEngine {
   readonly gameId = 'plinko';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const rows = Math.min(16, Math.max(8, Number(context.payload.rows ?? 8)));
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const defaultRows = ruleConfig.rows ?? 8;
+    const rows = Math.min(16, Math.max(8, Number(context.payload.rows ?? defaultRows)));
     // Simulates ball dropping down pins: each row ball bounces left (0) or right (1)
     let rightBounces = 0;
     const path: number[] = [];
@@ -69,9 +79,12 @@ export class PlinkoEngine extends BaseGameEngine {
 
     // Bin index is total right bounces (0 to rows)
     const binIndex = rightBounces;
-    // Multipliers symmetrical: center is ~0.5x, edges are up to 10x-29x
+    // Multipliers symmetrical: center is ~base, edges scale with exponent and factor
+    const baseMult = rewardConfig.baseMultiplier ?? 0.5;
+    const exp = rewardConfig.exponent ?? 1.8;
+    const scale = rewardConfig.scaleFactor ?? 0.4;
     const distanceFromCenter = Math.abs(binIndex - rows / 2);
-    const multiplier = Math.floor((0.5 + Math.pow(distanceFromCenter, 1.8) * 0.4) * 100) / 100;
+    const multiplier = Math.floor((baseMult + Math.pow(distanceFromCenter, exp) * scale) * 100) / 100;
     const won = multiplier >= 1.0;
     const rewardAmount = Math.floor(context.entryAmount * multiplier * 100) / 100;
 
@@ -93,13 +106,19 @@ export class BalloonEngine extends BaseGameEngine {
   readonly gameId = 'balloon';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
     const pumps = Math.max(1, Number(context.payload.pumps ?? 3));
-    // Server decides authoritative pop limit
-    const popAtPump = this.generateSecureRandomInt(2, 12);
+    // Server decides authoritative pop limit driven by ruleConfig pop range
+    const minPop = ruleConfig.minPopRange ?? 2;
+    const maxPop = ruleConfig.maxPopRange ?? 12;
+    const popAtPump = this.generateSecureRandomInt(minPop, maxPop);
     const popped = pumps >= popAtPump;
     const won = !popped;
 
-    const multiplier = won ? Math.floor((1.0 + pumps * 0.25) * 100) / 100 : 0;
+    const pumpRate = rewardConfig.pumpMultiplierRate ?? 0.25;
+    const multiplier = won ? Math.floor((1.0 + pumps * pumpRate) * 100) / 100 : 0;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -120,12 +139,17 @@ export class StepPathEngine extends BaseGameEngine {
   readonly gameId = 'step_path';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const steps = Math.min(10, Math.max(1, Number(context.payload.steps ?? 3)));
-    const trapStep = this.generateSecureRandomInt(2, 11);
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const maxSteps = ruleConfig.maxSteps ?? 10;
+    const steps = Math.min(maxSteps, Math.max(1, Number(context.payload.steps ?? 3)));
+    const trapStep = this.generateSecureRandomInt(2, maxSteps + 1);
     const fell = steps >= trapStep;
     const won = !fell;
 
-    const multiplier = won ? Math.floor((1.0 + steps * 0.4) * 100) / 100 : 0;
+    const stepRate = rewardConfig.stepMultiplierRate ?? 0.4;
+    const multiplier = won ? Math.floor((1.0 + steps * stepRate) * 100) / 100 : 0;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {

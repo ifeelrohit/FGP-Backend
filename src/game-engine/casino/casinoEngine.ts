@@ -13,8 +13,9 @@ export class SpinWheelEngine extends BaseGameEngine {
   readonly gameId = 'spin_wheel';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    // 8 wheel slices with multipliers [0.5x, 1.2x, 2.0x, 0x, 1.5x, 3.0x, 0.8x, 5.0x]
-    const slices = [
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+    // 8 wheel slices with multipliers, configurable via rewardConfig.slices
+    const slices = rewardConfig.slices || [
       { label: '0.5x', multiplier: 0.5 },
       { label: '1.2x', multiplier: 1.2 },
       { label: '2.0x', multiplier: 2.0 },
@@ -48,23 +49,27 @@ export class SlotMachineEngine extends BaseGameEngine {
   readonly gameId = 'slot_machine';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    // 5 distinct symbols with weighted payout
-    const symbols = ['CHERRY', 'LEMON', 'BELL', 'BAR', 'SEVEN'];
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    // 5 distinct symbols with weighted payout driven by configuration
+    const symbols = ruleConfig.symbols || ['CHERRY', 'LEMON', 'BELL', 'BAR', 'SEVEN'];
     const r1 = symbols[this.generateSecureRandomInt(0, symbols.length - 1)];
     const r2 = symbols[this.generateSecureRandomInt(0, symbols.length - 1)];
     const r3 = symbols[this.generateSecureRandomInt(0, symbols.length - 1)];
 
+    const multMap = rewardConfig.multipliers || {};
     let multiplier = 0;
     if (r1 === r2 && r2 === r3) {
       // Three of a kind
-      if (r1 === 'SEVEN') multiplier = 50.0;
-      else if (r1 === 'BAR') multiplier = 20.0;
-      else if (r1 === 'BELL') multiplier = 10.0;
-      else if (r1 === 'LEMON') multiplier = 5.0;
-      else multiplier = 3.0; // CHERRY
+      if (r1 === 'SEVEN') multiplier = multMap.SEVEN ?? 50.0;
+      else if (r1 === 'BAR') multiplier = multMap.BAR ?? 20.0;
+      else if (r1 === 'BELL') multiplier = multMap.BELL ?? 10.0;
+      else if (r1 === 'LEMON') multiplier = multMap.LEMON ?? 5.0;
+      else multiplier = multMap.CHERRY ?? 3.0;
     } else if (r1 === r2 || r2 === r3 || r1 === r3) {
       // Two matching
-      multiplier = 1.5;
+      multiplier = multMap.MATCH_TWO ?? 1.5;
     }
 
     const won = multiplier > 0;
@@ -88,6 +93,12 @@ export class RouletteEngine extends BaseGameEngine {
   readonly gameId = 'roulette';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+    const multMap = rewardConfig.multipliers || {};
+    const straightMultiplier = multMap.STRAIGHT ?? 36.0;
+    const parityMultiplier = multMap.PARITY ?? 2.0;
+    const colorMultiplier = multMap.COLOR ?? 2.0;
+
     // 0 through 36
     const winningNumber = this.generateSecureRandomInt(0, 36);
     const redNumbers = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
@@ -103,19 +114,19 @@ export class RouletteEngine extends BaseGameEngine {
 
     if (betType === 'RED' && isRed) {
       won = true;
-      multiplier = 2.0;
+      multiplier = colorMultiplier;
     } else if (betType === 'BLACK' && isBlack) {
       won = true;
-      multiplier = 2.0;
+      multiplier = colorMultiplier;
     } else if (betType === 'EVEN' && isEven) {
       won = true;
-      multiplier = 2.0;
+      multiplier = parityMultiplier;
     } else if (betType === 'ODD' && winningNumber !== 0 && !isEven) {
       won = true;
-      multiplier = 2.0;
+      multiplier = parityMultiplier;
     } else if (betType === 'STRAIGHT' && Number(betValue) === winningNumber) {
       won = true;
-      multiplier = 36.0;
+      multiplier = straightMultiplier;
     }
 
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;

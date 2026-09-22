@@ -69,12 +69,10 @@ export class RoundService {
     let crashPoint: number | undefined;
     if (gameId === 'crash' || gameId === 'space_crash') {
       const engine = engineRegistry.get(gameId) as CrashEngine | undefined;
-      if (engine && typeof engine.generateAuthoritativeCrashPoint === 'function') {
-        crashPoint = engine.generateAuthoritativeCrashPoint(serverSeed);
-      } else {
-        const fallbackEngine = new CrashEngine(gameId);
-        crashPoint = fallbackEngine.generateAuthoritativeCrashPoint(serverSeed);
+      if (!engine || typeof engine.generateAuthoritativeCrashPoint !== 'function') {
+        throw new NotFoundError(`No authoritative crash engine registered for game '${gameId}'`);
       }
+      crashPoint = engine.generateAuthoritativeCrashPoint(serverSeed, configSnapshot);
     }
 
     // 4. Persist the round in SCHEDULED state

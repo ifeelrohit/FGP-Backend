@@ -21,7 +21,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U fgp_test_user -d fgp_test_db"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
@@ -44,7 +44,7 @@ jobs:
       - name: Set up Node.js 22 LTS
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Dependencies
@@ -56,11 +56,23 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Verify PostgreSQL Database Readiness
+        run: |
+          echo "Verifying PostgreSQL readiness..."
+          for i in {1..30}; do
+            if echo "SELECT 1;" | npx prisma db execute --stdin --schema prisma/schema.prisma > /dev/null 2>&1; then
+              echo "PostgreSQL is ready and accepting queries!"
+              break
+            fi
+            echo "Waiting for PostgreSQL database connection ($i/30)..."
+            sleep 1
+          done
+
       - name: Deploy Prisma Migrations to Test Database
         run: npx prisma migrate deploy
 
       - name: Seed Database
-        run: npm run prisma:seed
+        run: npm run seed
 
       - name: TypeScript Static Typecheck
         run: npm run typecheck

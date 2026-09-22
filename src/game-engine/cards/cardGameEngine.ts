@@ -36,6 +36,13 @@ export class BlackjackEngine extends BaseGameEngine {
   readonly gameId = 'blackjack';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+    const dealerStandScore = ruleConfig.dealerStandScore ?? 17;
+    const multMap = rewardConfig.multipliers || {};
+    const naturalMultiplier = multMap.BLACKJACK ?? 2.5;
+    const standardMultiplier = multMap.STANDARD ?? 2.0;
+
     const deck = shuffleDeck(createStandardDeck());
     const playerCards: Card[] = [deck.pop()!, deck.pop()!];
     const dealerCards: Card[] = [deck.pop()!, deck.pop()!];
@@ -43,8 +50,8 @@ export class BlackjackEngine extends BaseGameEngine {
     let playerScore = calculateBlackjackHand(playerCards);
     let dealerScore = calculateBlackjackHand(dealerCards);
 
-    // Dealer hits to 17
-    while (dealerScore < 17 && deck.length > 0) {
+    // Dealer hits up to dealerStandScore
+    while (dealerScore < dealerStandScore && deck.length > 0) {
       dealerCards.push(deck.pop()!);
       dealerScore = calculateBlackjackHand(dealerCards);
     }
@@ -59,7 +66,7 @@ export class BlackjackEngine extends BaseGameEngine {
     if (!playerBust) {
       if (dealerBust || playerScore > dealerScore) {
         won = true;
-        multiplier = isNaturalBlackjack ? 2.5 : 2.0;
+        multiplier = isNaturalBlackjack ? naturalMultiplier : standardMultiplier;
       } else if (playerScore === dealerScore) {
         // Push: refund entry
         multiplier = 1.0;
@@ -106,6 +113,12 @@ export class BaccaratEngine extends BaseGameEngine {
   }
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+    const multMap = rewardConfig.multipliers || {};
+    const playerMultiplier = multMap.PLAYER ?? 2.0;
+    const bankerMultiplier = multMap.BANKER ?? 1.95;
+    const tieMultiplier = multMap.TIE ?? 9.0;
+
     const deck = shuffleDeck(createStandardDeck());
     const playerCards: Card[] = [deck.pop()!, deck.pop()!];
     const bankerCards: Card[] = [deck.pop()!, deck.pop()!];
@@ -123,9 +136,9 @@ export class BaccaratEngine extends BaseGameEngine {
 
     let multiplier = 0;
     if (won) {
-      if (winner === 'PLAYER') multiplier = 2.0;
-      else if (winner === 'BANKER') multiplier = 1.95; // 5% house commission
-      else if (winner === 'TIE') multiplier = 9.0;
+      if (winner === 'PLAYER') multiplier = playerMultiplier;
+      else if (winner === 'BANKER') multiplier = bankerMultiplier;
+      else if (winner === 'TIE') multiplier = tieMultiplier;
     }
 
     const rewardAmount = Math.floor(context.entryAmount * multiplier * 100) / 100;
@@ -155,6 +168,12 @@ export class RummyEngine extends BaseGameEngine {
   readonly gameId = 'rummy';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+    const targetThreshold = ruleConfig.targetScoreThreshold ?? 40;
+    const multMap = rewardConfig.multipliers || {};
+    const winMultiplier = rewardConfig.multiplier ?? multMap.WIN ?? 2.0;
+
     const deck = shuffleDeck(createStandardDeck());
     // Deal 13 cards to simulated player hand
     const hand: Card[] = deck.slice(0, 13);
@@ -167,8 +186,8 @@ export class RummyEngine extends BaseGameEngine {
     // Simplified server meld evaluation: checks suit distribution and pure sequence chances
     const hasLongSuit = Array.from(suitsCount.values()).some((cnt) => cnt >= 4);
     const scorePoints = this.generateSecureRandomInt(10, 80);
-    const won = hasLongSuit && scorePoints < 40;
-    const multiplier = won ? 2.0 : 0.0;
+    const won = hasLongSuit && scorePoints < targetThreshold;
+    const multiplier = won ? winMultiplier : 0.0;
     const rewardAmount = Math.floor(context.entryAmount * multiplier * 100) / 100;
 
     return {

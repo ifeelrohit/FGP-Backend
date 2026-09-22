@@ -8,6 +8,8 @@ import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
 import crypto from 'node:crypto';
 import { GAME_CATALOG } from '../src/shared/constants/games.ts';
+import { engineRegistry } from '../src/game-engine/engineRegistry.ts';
+import { CrashEngine } from '../src/game-engine/realtime/crashEngine.ts';
 
 const prisma = new PrismaClient();
 
@@ -213,6 +215,19 @@ async function main() {
     if (!existingRound) {
       const serverSeed = crypto.randomBytes(32).toString('hex');
       const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+      const configSnapshot = {
+        version: 1,
+        gameId: game.id,
+        timestamp: new Date().toISOString(),
+      };
+
+      let crashPoint: number | null = null;
+      if (game.id === 'crash' || game.id === 'space_crash') {
+        const engine = engineRegistry.get(game.id) as CrashEngine | undefined;
+        if (engine && typeof engine.generateAuthoritativeCrashPoint === 'function') {
+          crashPoint = engine.generateAuthoritativeCrashPoint(serverSeed, configSnapshot);
+        }
+      }
 
       await prisma.gameRound.create({
         data: {
@@ -221,14 +236,10 @@ async function main() {
           roundNumber: 1n,
           status: 'OPEN',
           configId,
-          configSnapshot: {
-            version: 1,
-            gameId: game.id,
-            timestamp: new Date().toISOString(),
-          },
+          configSnapshot,
           serverSeedHash,
           serverSeed,
-          crashPoint: game.id.includes('crash') ? 2.34 : null,
+          crashPoint,
           openedAt: new Date(),
         },
       });
