@@ -58,18 +58,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     const wsClients = wsManager.getConnectedClientsCount();
     const registeredEngines = engineRegistry.getAllEngines();
     const isEnginesReady = registeredEngines.length >= 18;
-
-    const isExplicitMemoryMode = process.env.REPOSITORY_MODE === 'memory' && config.NODE_ENV !== 'production';
-    const isDbReady = dbCheck.connected || isExplicitMemoryMode;
-    const isReady = isDbReady && isEnginesReady;
+    const isDbConnected = dbCheck.connected;
+    const isReady = isDbConnected && isEnginesReady;
 
     return reply.status(isReady ? 200 : 503).send({
       status: isReady ? 'ready' : 'unready',
       subsystems: {
         database: {
-          connected: dbCheck.connected,
+          connected: isDbConnected,
           latencyMs: dbCheck.latencyMs,
-          mode: isExplicitMemoryMode ? 'memory_test_adapter' : 'postgresql',
           ...(dbCheck.error ? { error: dbCheck.error } : {}),
         },
         websocket: {

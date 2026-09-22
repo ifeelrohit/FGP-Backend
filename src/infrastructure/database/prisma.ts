@@ -81,11 +81,11 @@ export async function checkDatabaseConnection(): Promise<{
   latencyMs?: number;
   error?: string;
 }> {
-  const reachable = await isDatabaseReachable();
+  const reachable = await isDatabaseReachable(true);
   if (!reachable) {
     return {
       connected: false,
-      error: 'PostgreSQL database server offline or unreachable; active repository container running in resilient in-memory mode',
+      error: 'PostgreSQL database server offline or unreachable',
     };
   }
 

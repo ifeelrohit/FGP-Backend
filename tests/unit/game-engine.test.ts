@@ -36,14 +36,24 @@ describe('Authoritative Game Engine Registry & Resolution', () => {
   });
 
   it('Crash engine should generate authoritative crash point >= 1.00', () => {
-    const engine = engineRegistry.get('crash')!;
-    const res = engine.resolveResult({
-      userId: 'usr-1',
-      gameId: 'crash',
-      entryAmount: 50,
-      config: {},
-      payload: { cashoutMultiplier: 1.5 },
-    });
+    const engine = engineRegistry.get('crash') as any;
+    const serverSeed = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const crashPoint = engine.generateAuthoritativeCrashPoint(serverSeed);
+    expect(crashPoint).toBeGreaterThanOrEqual(1.0);
+
+    const res = engine.resolveResult(
+      {
+        userId: 'usr-1',
+        gameId: 'crash',
+        entryAmount: 50,
+        config: {},
+        payload: { autoCashoutMultiplier: 1.5 },
+      },
+      {
+        crashPoint,
+        serverSeed,
+      }
+    );
 
     expect(res.gameId).toBe('crash');
     expect(Number(res.outcome.crashPoint)).toBeGreaterThanOrEqual(1.0);

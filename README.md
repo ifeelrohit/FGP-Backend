@@ -42,24 +42,31 @@ src/
 
 The platform registers and authors outcomes for **exactly 18 deterministic game engines**:
 
+**Prediction Games (6):**
 1. `color_pred` - Color Prediction (Red, Green, Violet)
 2. `number_pred` - Number Prediction (0–9)
 3. `odd_even` - Odd or Even parity
-4. `hi_lo` - High / Low comparative cards
+4. `hi_lo` - High / Low comparative prediction
 5. `dice` - Authoritative 6-sided dice roll
 6. `number_wheel` - Segmented multiplier wheel
-7. `andar_bahar` - Classic card matching game
-8. `lucky_card` - Single card rank/suit draw
-9. `card_high_low` - Consecutive card comparison
-10. `coin_toss` - Binary coin flip (Heads/Tails)
-11. `dragon_tiger` - Dragon vs Tiger card comparison
-12. `roulette` - Single-zero European roulette (37 pockets)
-13. `spin_wheel` - Continuous wheel spinner
-14. `crash` - Real-time exponential multiplier crash engine
+
+**Casino & Card Games (6):**
+7. `spin_wheel` - Continuous wheel spinner
+8. `slot_machine` - Multi-reel classic slot machine
+9. `roulette` - Single-zero European roulette (37 pockets)
+10. `blackjack` - Authoritative Blackjack card engine
+11. `baccarat` - Classic Baccarat card engine
+12. `rummy` - Deterministic Rummy card engine
+
+**Real-Time Games (2):**
+13. `crash` - Real-time exponential multiplier crash engine
+14. `space_crash` - Space-themed real-time crash engine
+
+**Mini Games (4):**
 15. `mines` - Interactive grid with hidden mines
 16. `plinko` - Multi-row peg drop probability engine
-17. `limbo` - Target multiplier threshold game
-18. `keno` - Multi-number lottery draw engine
+17. `balloon` - Pressure-inflation pump game
+18. `step_path` - Progressive step multiplier minefield
 
 ---
 

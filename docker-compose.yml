@@ -11,15 +11,15 @@ services:
     container_name: fgp-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fgp_user
-      POSTGRES_PASSWORD: fgp_password_secure
-      POSTGRES_DB: fgp_db
+      POSTGRES_USER: ${POSTGRES_USER:-fgp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-fgp_db}
     ports:
       - "5432:5432"
     volumes:
       - fgp_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fgp_user -d fgp_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fgp_user} -d ${POSTGRES_DB:-fgp_db}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -36,9 +36,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      DATABASE_URL: postgresql://fgp_user:fgp_password_secure@postgres:5432/fgp_db?schema=public
-      JWT_ACCESS_SECRET: fgp_jwt_access_secret_phase03_production_key_autoritative
-      JWT_REFRESH_SECRET: fgp_jwt_refresh_secret_phase03_production_key_authoritative
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-fgp_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fgp_db}?schema=public}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       CORS_ORIGIN: "*"

@@ -16,32 +16,7 @@ describe('Integration: Health & Readiness Endpoints', () => {
     await app.close();
   });
 
-  it('GET /ready should return 503 unready when PostgreSQL is unreachable', async () => {
-    const originalMode = process.env.REPOSITORY_MODE;
-    delete process.env.REPOSITORY_MODE;
-
-    const app = await buildApp();
-    const response = await app.inject({
-      method: 'GET',
-      url: '/ready',
-    });
-
-    // When DB is unreachable on localhost:5432, /ready MUST return 503
-    expect(response.statusCode).toBe(503);
-    const json = response.json();
-    expect(json.status).toBe('unready');
-    expect(json.subsystems.database.connected).toBe(false);
-    expect(json.subsystems.gameEngines.registered).toBe(18);
-    await app.close();
-
-    if (originalMode) {
-      process.env.REPOSITORY_MODE = originalMode;
-    }
-  });
-
-  it('GET /ready should return 200 ready when running with explicit memory adapter in non-production', async () => {
-    process.env.REPOSITORY_MODE = 'memory';
-
+  it('GET /ready should return 200 ready when PostgreSQL is reachable and all 18 engines are registered', async () => {
     const app = await buildApp();
     const response = await app.inject({
       method: 'GET',
@@ -51,9 +26,35 @@ describe('Integration: Health & Readiness Endpoints', () => {
     expect(response.statusCode).toBe(200);
     const json = response.json();
     expect(json.status).toBe('ready');
+    expect(json.subsystems.database.connected).toBe(true);
+    expect(json.subsystems.gameEngines.registered).toBe(18);
+    expect(json.subsystems.gameEngines.ready).toBe(true);
+    await app.close();
+  });
+
+  it('GET /ready should return 503 unready when PostgreSQL is unreachable', async () => {
+    // Point to unreachable database host/port
+    const originalUrl = process.env.DATABASE_URL;
+    process.env.DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54399/unreachable_db?connect_timeout=1';
+
+    const app = await buildApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ready',
+    });
+
+    // When DB is unreachable, /ready MUST return 503
+    expect(response.statusCode).toBe(503);
+    const json = response.json();
+    expect(json.status).toBe('unready');
+    expect(json.subsystems.database.connected).toBe(false);
     expect(json.subsystems.gameEngines.registered).toBe(18);
     await app.close();
 
-    delete process.env.REPOSITORY_MODE;
+    if (originalUrl) {
+      process.env.DATABASE_URL = originalUrl;
+    } else {
+      delete process.env.DATABASE_URL;
+    }
   });
 });

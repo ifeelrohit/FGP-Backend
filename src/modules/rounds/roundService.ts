@@ -16,6 +16,8 @@ import { BadRequestError, NotFoundError, RoundLifecycleError } from '../../share
 import { RoundStatus } from '../../shared/types/index.ts';
 import { isValidRoundTransition } from '../../shared/constants/rounds.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
+import { engineRegistry } from '../../game-engine/engineRegistry.ts';
+import { CrashEngine } from '../../game-engine/realtime/crashEngine.ts';
 
 export class RoundService {
   private get repo(): IRoundRepository {
@@ -63,16 +65,15 @@ export class RoundService {
     const serverSeed = crypto.randomBytes(32).toString('hex');
     const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
 
-    // 3. For crash games, calculate the single authoritative crash point at round creation
+    // 3. For crash games, calculate the single authoritative crash point at round creation using CrashEngine
     let crashPoint: number | undefined;
     if (gameId === 'crash' || gameId === 'space_crash') {
-      const hashNum = parseInt(serverSeed.slice(0, 8), 16);
-      // House edge 4%, crash distribution
-      if (hashNum % 25 === 0) {
-        crashPoint = 1.0; // Instant bust (4% chance)
+      const engine = engineRegistry.get(gameId) as CrashEngine | undefined;
+      if (engine && typeof engine.generateAuthoritativeCrashPoint === 'function') {
+        crashPoint = engine.generateAuthoritativeCrashPoint(serverSeed);
       } else {
-        const rawMultiplier = 1.01 + ((hashNum % 10000) / 10000) * 15;
-        crashPoint = Math.round(rawMultiplier * 100) / 100;
+        const fallbackEngine = new CrashEngine(gameId);
+        crashPoint = fallbackEngine.generateAuthoritativeCrashPoint(serverSeed);
       }
     }
 

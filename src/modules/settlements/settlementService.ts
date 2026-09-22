@@ -15,8 +15,32 @@ import { IRoundRepository } from '../../infrastructure/repositories/interfaces/I
 import { roundService } from '../rounds/roundService.ts';
 import { ledgerService } from '../ledger/ledgerService.ts';
 import { engineRegistry } from '../../game-engine/engineRegistry.ts';
+import { CrashEngine } from '../../game-engine/realtime/crashEngine.ts';
 import { BadRequestError, ConflictError, NotFoundError } from '../../shared/errors/index.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
+
+/**
+ * Sanitizes client-provided payloads to prevent client determination of settlement outcomes.
+ * Strictly ignores or rejects client-provided multipliers, crash points, or rewards.
+ */
+function sanitizeClientPayload(payload?: Record<string, unknown>): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') {
+    return {};
+  }
+  const sanitized = { ...payload };
+  const FORBIDDEN_CLIENT_KEYS = [
+    'authoritativeMultiplier',
+    'crashPoint',
+    'payoutMultiplier',
+    'rewardAmount',
+    'clientMultiplier',
+    'multiplier',
+  ];
+  for (const key of FORBIDDEN_CLIENT_KEYS) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
 
 export interface PlayerEntryReceipt {
   id?: string;
@@ -70,7 +94,8 @@ export class SettlementService {
     payload?: Record<string, unknown>;
     idempotencyKey?: string;
   }): Promise<PlayerEntryReceipt> {
-    const { userId, gameId, entryAmount, payload = {}, idempotencyKey } = params;
+    const { userId, gameId, entryAmount, idempotencyKey } = params;
+    const sanitizedPayload = sanitizeClientPayload(params.payload);
 
     // 1. Resolve or create active round
     let round = params.roundId
@@ -93,9 +118,9 @@ export class SettlementService {
       gameId,
       roundId: round.id,
       entryAmount,
-      payload,
+      payload: sanitizedPayload,
       idempotencyKey,
-      metadata: { gameId, roundId: round.id, payload },
+      metadata: { gameId, roundId: round.id, payload: sanitizedPayload },
     });
 
     if (!result.isIdempotent) {
@@ -167,36 +192,44 @@ export class SettlementService {
       throw new ConflictError(`Round '${round.id}' is '${round.status}', cashout is not possible.`);
     }
 
-    const crashPoint = round.crashPoint ? Number(round.crashPoint) : 1.5;
+    // Strictly enforce authoritative crash point from round state; fail safely if missing
+    if (round.crashPoint === null || round.crashPoint === undefined || Number.isNaN(Number(round.crashPoint))) {
+      throw new BadRequestError(
+        `Authoritative crash point missing for round '${round.id}'. System refuses to settle using invented outcomes.`
+      );
+    }
 
-    // 3. Server determines the authoritative current multiplier based on elapsed time since round opened
+    const engine = engineRegistry.get(round.gameId) as CrashEngine | undefined;
+    if (!engine || typeof engine.evaluateCashout !== 'function') {
+      throw new NotFoundError(`No authoritative crash engine registered for game '${round.gameId}'`);
+    }
+
+    // 3. Authoritative server elapsed time calculation
     const openedTime = round.openedAt ? new Date(round.openedAt).getTime() : Date.now();
     const elapsedSeconds = Math.max(0, (Date.now() - openedTime) / 1000);
-    // Multiplier grows exponentially: 1.01 * e^(0.06 * t)
-    const currentMultiplier = Math.round(Math.pow(Math.E, 0.06 * elapsedSeconds) * 100) / 100;
 
-    // Check if auto-cashout was configured in entry payload
-    const autoCashout = entry.payload?.autoCashoutMultiplier ? Number(entry.payload.autoCashoutMultiplier) : undefined;
-    const cashoutMultiplier = (autoCashout && autoCashout <= currentMultiplier) ? autoCashout : currentMultiplier;
+    // Auto-cashout target requested by client at entry time
+    const autoCashout = entry.payload?.autoCashoutMultiplier
+      ? Number(entry.payload.autoCashoutMultiplier)
+      : undefined;
 
-    // 4. Determine win/loss against the round's single authoritative crash point
-    const won = cashoutMultiplier <= crashPoint;
-    const payoutMultiplier = won ? cashoutMultiplier : 0;
-    const rewardAmount = won ? Math.floor(entry.entryAmount * payoutMultiplier * 100) / 100 : 0;
+    // 4. Delegate cashout evaluation strictly to CrashEngine
+    const evaluation = engine.evaluateCashout({
+      roundId: round.id,
+      entryAmount: entry.entryAmount,
+      roundCrashPoint: Number(round.crashPoint),
+      elapsedSeconds,
+      requestedAutoCashoutMultiplier: autoCashout,
+    });
 
     // 5. Atomically settle entry and credit reward (if won) in a single transaction
     const settleResult = await this.settlementRepo.settleEntryWithReward({
       userId,
       entryId: entry.id,
-      status: won ? 'WON' : 'LOST',
-      payoutMultiplier,
-      rewardAmount,
-      outcome: {
-        crashPoint,
-        authoritativeMultiplier: currentMultiplier,
-        cashoutMultiplier,
-        won,
-      },
+      status: evaluation.won ? 'WON' : 'LOST',
+      payoutMultiplier: evaluation.payoutMultiplier,
+      rewardAmount: evaluation.rewardAmount,
+      outcome: evaluation.outcome,
       referenceType: 'CRASH_CASHOUT_REWARD',
       idempotencyKey,
     });
@@ -207,9 +240,9 @@ export class SettlementService {
       gameId: settleResult.settlement.gameId,
       status: 'SETTLED',
       settlementStatus: settleResult.settlement.status,
-      won,
-      payoutMultiplier,
-      rewardAmount,
+      won: evaluation.won,
+      payoutMultiplier: evaluation.payoutMultiplier,
+      rewardAmount: evaluation.rewardAmount,
       balanceAfter: settleResult.balanceAfter ?? 0,
       outcome: (settleResult.settlement.outcome || {}) as Record<string, unknown>,
       settledAt: settleResult.settlement.settledAt.toISOString(),
@@ -229,7 +262,8 @@ export class SettlementService {
     payload: Record<string, unknown>;
     idempotencyKey?: string;
   }): Promise<SettlementReceipt> {
-    const { userId, gameId, entryAmount, payload, idempotencyKey } = params;
+    const { userId, gameId, entryAmount, idempotencyKey } = params;
+    const sanitizedPayload = sanitizeClientPayload(params.payload);
 
     const engine = engineRegistry.get(gameId);
     if (!engine) {
@@ -242,7 +276,7 @@ export class SettlementService {
       gameId,
       roundId: params.roundId,
       entryAmount,
-      payload,
+      payload: sanitizedPayload,
       idempotencyKey: idempotencyKey ? `${idempotencyKey}-entry` : undefined,
     });
 
@@ -256,7 +290,7 @@ export class SettlementService {
       roundId: round.id,
       entryAmount,
       config: configSnapshot,
-      payload,
+      payload: sanitizedPayload,
     });
 
     if (!validation.valid) {
@@ -271,7 +305,7 @@ export class SettlementService {
         roundId: round.id,
         entryAmount,
         config: configSnapshot,
-        payload,
+        payload: sanitizedPayload,
       },
       {
         crashPoint: round.crashPoint,

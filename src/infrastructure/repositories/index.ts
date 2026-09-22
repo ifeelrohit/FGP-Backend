@@ -37,7 +37,6 @@ import {
 } from './in-memory/InMemoryRepositories.ts';
 
 import { GAME_CATALOG } from '../../shared/constants/games.ts';
-import { isDatabaseReachable } from '../database/prisma.ts';
 import { logger } from '../logging/logger.ts';
 
 export interface RepositoryContainer {
@@ -72,27 +71,18 @@ const productionContainer: RepositoryContainer = {
   announcementRepo: new PrismaAnnouncementRepository(),
 };
 
-// Default in-memory container for resilient local development & preview
-const defaultInMemory = createInMemoryRepositories();
-let activeContainer: RepositoryContainer = defaultInMemory;
+// Authoritative production container (Default for both production and development)
+let activeContainer: RepositoryContainer = productionContainer;
 let hasCustomRepositories = false;
 
 export async function initializeRepositoryContainer(): Promise<RepositoryContainer> {
   const isExplicitMemoryMode = process.env.REPOSITORY_MODE === 'memory';
   const isProduction = process.env.NODE_ENV === 'production';
 
-  if (isProduction) {
-    if (isExplicitMemoryMode) {
-      throw new Error(
-        'FATAL: REPOSITORY_MODE=memory is strictly forbidden in production. Production must use PostgreSQL / Prisma repositories.'
-      );
-    }
-    const dbReachable = await isDatabaseReachable();
-    if (!dbReachable) {
-      logger.error('CRITICAL: PostgreSQL database is unreachable at production startup.');
-    }
-    activeContainer = productionContainer;
-    return activeContainer;
+  if (isProduction && isExplicitMemoryMode) {
+    throw new Error(
+      'FATAL: REPOSITORY_MODE=memory is strictly forbidden in production. Production must use PostgreSQL / Prisma repositories.'
+    );
   }
 
   if (hasCustomRepositories) {
@@ -105,18 +95,10 @@ export async function initializeRepositoryContainer(): Promise<RepositoryContain
     return activeContainer;
   }
 
-  // Check live PostgreSQL reachability
-  const dbReachable = await isDatabaseReachable();
-  if (dbReachable) {
-    activeContainer = productionContainer;
-    logger.info('Database server reachable at port 5432; running in authoritative PostgreSQL (Prisma) mode');
-  } else {
-    activeContainer = defaultInMemory;
-    logger.warn(
-      'Database server at localhost:5432 is unreachable; running in resilient in-memory mode for development/preview'
-    );
-  }
-
+  // Authoritative PostgreSQL (Prisma) repository mode
+  // Production and development default to PostgreSQL; no implicit in-memory fallback.
+  activeContainer = productionContainer;
+  logger.info('Configured with authoritative PostgreSQL (Prisma) repositories');
   return activeContainer;
 }
 
