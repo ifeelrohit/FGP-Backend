@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig } from '../../src/app/config.ts';
+import { loadConfig, ConfigSchema } from '../../src/app/config.ts';
 
 describe('Environment Configuration', () => {
   it('should load default configuration values safely', () => {
@@ -11,4 +11,24 @@ describe('Environment Configuration', () => {
     expect(config.DEFAULT_DEMO_CREDITS).toBe(10000);
     expect(config.JWT_ACCESS_SECRET.length).toBeGreaterThanOrEqual(16);
   });
+
+  it('should validate LOG_LEVEL enum including silent and standard Pino levels', () => {
+    const validLevels = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
+    for (const level of validLevels) {
+      const parsed = ConfigSchema.safeParse({ LOG_LEVEL: level });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.LOG_LEVEL).toBe(level);
+      }
+    }
+
+    const invalid = ConfigSchema.safeParse({ LOG_LEVEL: 'verbose' });
+    expect(invalid.success).toBe(false);
+  });
+
+  it('should strictly reject insecure short JWT secrets', () => {
+    const invalidSecret = ConfigSchema.safeParse({ JWT_ACCESS_SECRET: 'short' });
+    expect(invalidSecret.success).toBe(false);
+  });
 });
+
