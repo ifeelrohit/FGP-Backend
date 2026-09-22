@@ -214,13 +214,14 @@ export class SettlementService {
       ? Number(entry.payload.autoCashoutMultiplier)
       : undefined;
 
-    // 4. Delegate cashout evaluation strictly to CrashEngine
+    // 4. Delegate cashout evaluation strictly to CrashEngine using authoritative round configuration
     const evaluation = engine.evaluateCashout({
       roundId: round.id,
       entryAmount: entry.entryAmount,
       roundCrashPoint: Number(round.crashPoint),
       elapsedSeconds,
       requestedAutoCashoutMultiplier: autoCashout,
+      config: (round.configSnapshot || undefined) as Record<string, any> | undefined,
     });
 
     // 5. Atomically settle entry and credit reward (if won) in a single transaction

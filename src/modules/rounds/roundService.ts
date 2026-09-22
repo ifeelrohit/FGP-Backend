@@ -43,23 +43,19 @@ export class RoundService {
     }
 
     // 1. Snapshot the exact active configuration version
-    let configId: string | undefined;
-    let configSnapshot: Record<string, unknown> | undefined;
-    try {
-      const activeConfig = await configService.getActiveConfig(gameId);
-      configId = activeConfig.id;
-      configSnapshot = {
-        version: activeConfig.version,
-        generalConfig: activeConfig.generalConfig,
-        entryConfig: activeConfig.entryConfig,
-        timingConfig: activeConfig.timingConfig,
-        ruleConfig: activeConfig.ruleConfig,
-        rewardConfig: activeConfig.rewardConfig,
-      };
-    } catch {
-      // Use default fallback snapshot if not yet seeded
-      configSnapshot = { version: 1, note: 'Default genesis configuration snapshot' };
+    const activeConfig = await configService.getActiveConfig(gameId);
+    if (!activeConfig) {
+      throw new NotFoundError(`No active configuration found for game '${gameId}'`);
     }
+    const configId = activeConfig.id;
+    const configSnapshot: Record<string, unknown> = {
+      version: activeConfig.version,
+      generalConfig: activeConfig.generalConfig,
+      entryConfig: activeConfig.entryConfig,
+      timingConfig: activeConfig.timingConfig,
+      ruleConfig: activeConfig.ruleConfig,
+      rewardConfig: activeConfig.rewardConfig,
+    };
 
     // 2. Generate provably-fair commitment seeds
     const serverSeed = crypto.randomBytes(32).toString('hex');

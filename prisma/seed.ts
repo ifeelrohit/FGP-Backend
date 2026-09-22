@@ -217,8 +217,42 @@ async function main() {
       const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
       const configSnapshot = {
         version: 1,
-        gameId: game.id,
-        timestamp: new Date().toISOString(),
+        generalConfig: {
+          name: game.name,
+          category: game.category,
+          enabled: true,
+          maintenanceMode: false,
+        },
+        entryConfig: {
+          minEntry: 10.0,
+          maxEntry: 5000.0,
+          defaultEntry: 50.0,
+          allowedIncrements: [10, 20, 50, 100, 500, 1000],
+        },
+        timingConfig: {
+          roundDurationSeconds: 30,
+          bettingLockWindowSeconds: 5,
+          resultDeclarationDelaySeconds: 3,
+          settlementDelaySeconds: 2,
+        },
+        ruleConfig: {
+          maxNumber: 9,
+          maxRange: 100,
+          deckCount: 6,
+          boardSize: 25,
+          mineCount: 3,
+          provablyFair: true,
+        },
+        rewardConfig: {
+          houseEdge: 0.03,
+          multipliers: {
+            VIOLET: 4.5,
+            STANDARD: 1.98,
+            RED: 1.98,
+            GREEN: 1.98,
+          },
+          maxPayoutMultiplier: 250.0,
+        },
       };
 
       let crashPoint: number | null = null;

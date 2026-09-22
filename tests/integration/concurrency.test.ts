@@ -14,6 +14,41 @@ describe('Concurrency & Invariant Integrity Test Suite', () => {
     await ledgerService.getBalance(userId);
   });
 
+  it('Scenario 1A: two simultaneous distinct entries from the same user succeed atomically with exact balance deduction', async () => {
+    const round = await roundService.createRound('dice');
+
+    const [res1, res2] = await Promise.all([
+      settlementService.submitEntry({
+        userId,
+        gameId: 'dice',
+        roundId: round.id,
+        entryAmount: 300,
+        payload: { target: 2 },
+        idempotencyKey: 'entry-distinct-01',
+      }),
+      settlementService.submitEntry({
+        userId,
+        gameId: 'dice',
+        roundId: round.id,
+        entryAmount: 400,
+        payload: { target: 5 },
+        idempotencyKey: 'entry-distinct-02',
+      }),
+    ]);
+
+    expect(res1.entryId).not.toBe(res2.entryId);
+    expect(res1.status).toBe('CONFIRMED');
+    expect(res2.status).toBe('CONFIRMED');
+
+    // Balance deducted for both: 10000 - 300 - 400 = 9300
+    const balance = await ledgerService.getBalance(userId);
+    expect(balance.balance).toBe(9300);
+
+    const txs = await ledgerService.listTransactions(userId);
+    const entryTxs = txs.filter((t) => t.type === 'ENTRY');
+    expect(entryTxs).toHaveLength(2);
+  });
+
   it('Scenario 1: simultaneous duplicate entry requests with identical idempotencyKey produce exactly 1 entry and 1 debit', async () => {
     const round = await roundService.createRound('dice');
     const idempotencyKey = 'idemp-concurrent-entry-001';

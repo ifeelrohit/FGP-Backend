@@ -31,21 +31,11 @@ export class GameService {
 
     const enriched: EnrichedGame[] = [];
     for (const g of list) {
-      let status: GameStatus = 'ACTIVE';
-      try {
-        const dbGame = await this.gameRepo.findById(g.id);
-        if (dbGame) status = dbGame.status;
-      } catch {
-        // Fallback to active
-      }
+      const dbGame = await this.gameRepo.findById(g.id);
+      const status: GameStatus = dbGame ? dbGame.status : 'ACTIVE';
 
-      let version = 1;
-      try {
-        const activeCfg = await this.configRepo.getActiveConfig(g.id);
-        if (activeCfg) version = activeCfg.version;
-      } catch {
-        // Fallback to version 1
-      }
+      const activeCfg = await this.configRepo.getActiveConfig(g.id);
+      const version = activeCfg ? activeCfg.version : 1;
 
       enriched.push({
         ...g,
@@ -63,21 +53,11 @@ export class GameService {
       throw new NotFoundError(`Game '${id}' not found in authoritative catalog`);
     }
 
-    let status: GameStatus = 'ACTIVE';
-    try {
-      const dbGame = await this.gameRepo.findById(id);
-      if (dbGame) status = dbGame.status;
-    } catch {
-      // Fallback
-    }
+    const dbGame = await this.gameRepo.findById(id);
+    const status: GameStatus = dbGame ? dbGame.status : 'ACTIVE';
 
-    let version = 1;
-    try {
-      const activeCfg = await this.configRepo.getActiveConfig(id);
-      if (activeCfg) version = activeCfg.version;
-    } catch {
-      // Fallback
-    }
+    const activeCfg = await this.configRepo.getActiveConfig(id);
+    const version = activeCfg ? activeCfg.version : 1;
 
     return {
       ...metadata,
@@ -92,11 +72,7 @@ export class GameService {
       throw new NotFoundError(`Game '${id}' not found in authoritative catalog`);
     }
 
-    try {
-      await this.gameRepo.updateStatus(id, status);
-    } catch {
-      // Ignore if table not yet seeded
-    }
+    await this.gameRepo.updateStatus(id, status);
 
     eventBus.publish('GAME_STATUS_CHANGED', {
       gameId: id,
