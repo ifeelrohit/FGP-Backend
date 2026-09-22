@@ -58,6 +58,22 @@ async function main() {
       status: 'ACTIVE' as const,
     },
     {
+      id: 'admin-1',
+      email: 'admin-1@fgp.local',
+      username: 'admin_1',
+      passwordHash: defaultPasswordHash,
+      role: 'CONFIGURATION_ADMIN' as const,
+      status: 'ACTIVE' as const,
+    },
+    {
+      id: 'system',
+      email: 'system@fgp.local',
+      username: 'system',
+      passwordHash: defaultPasswordHash,
+      role: 'SUPER_ADMIN' as const,
+      status: 'ACTIVE' as const,
+    },
+    {
       id: 'usr-player-demo-01',
       email: 'player1@fgp.local',
       username: 'player1',

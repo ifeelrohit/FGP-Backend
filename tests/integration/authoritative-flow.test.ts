@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { roundService } from '../../src/modules/rounds/roundService.ts';
 import { settlementService } from '../../src/modules/settlements/settlementService.ts';
 import { configService } from '../../src/modules/configurations/configService.ts';
-import { resetRepositoriesToProduction, initializeRepositoryContainer } from '../../src/infrastructure/repositories/index.ts';
+import { resetRepositoriesToProduction, initializeRepositoryContainer, getRepositories } from '../../src/infrastructure/repositories/index.ts';
 import { RoundLifecycleError, ConflictError } from '../../src/shared/errors/index.ts';
 
 describe('Authoritative Lifecycle & Engine Integration Flow', () => {
@@ -106,6 +106,32 @@ describe('Authoritative Lifecycle & Engine Integration Flow', () => {
 
   describe('Configuration Immutability & Rollback Flow', () => {
     it('should draft, approve, publish, and rollback game configuration', async () => {
+      // Ensure a valid persisted configuration admin exists and use their real database ID
+      const userRepo = getRepositories().userRepo;
+      let admin = await userRepo.findById('admin-1');
+      if (!admin) {
+        admin = await userRepo.findById('usr-config-admin-01');
+      }
+      if (!admin) {
+        try {
+          const res = await userRepo.createWithInitialCredits(
+            {
+              id: 'admin-1',
+              email: 'admin-1@fgp.local',
+              username: 'admin_1',
+              passwordHash: 'argon2id$test',
+              role: 'CONFIGURATION_ADMIN',
+              status: 'ACTIVE',
+            },
+            10000
+          );
+          admin = res.user;
+        } catch {
+          admin = (await userRepo.findById('admin-1')) || (await userRepo.findById('usr-config-admin-01'));
+        }
+      }
+      const adminActorId = admin!.id;
+
       const gameId = 'roulette';
       const initial = await configService.getActiveConfig(gameId);
       expect(initial.version).toBe(1);
@@ -120,11 +146,11 @@ describe('Authoritative Lifecycle & Engine Integration Flow', () => {
       expect(draft.status).toBe('DRAFT');
 
       // Progress through lifecycle: DRAFT -> VALIDATE -> PREVIEW -> APPROVE -> PUBLISH -> ACTIVE
-      await configService.transitionStatus(draft.id, 'VALIDATE', 'admin-1');
-      await configService.transitionStatus(draft.id, 'PREVIEW', 'admin-1');
-      await configService.transitionStatus(draft.id, 'APPROVE', 'admin-1');
-      await configService.transitionStatus(draft.id, 'PUBLISH', 'admin-1');
-      const activeV2 = await configService.transitionStatus(draft.id, 'ACTIVE', 'admin-1');
+      await configService.transitionStatus(draft.id, 'VALIDATE', adminActorId);
+      await configService.transitionStatus(draft.id, 'PREVIEW', adminActorId);
+      await configService.transitionStatus(draft.id, 'APPROVE', adminActorId);
+      await configService.transitionStatus(draft.id, 'PUBLISH', adminActorId);
+      const activeV2 = await configService.transitionStatus(draft.id, 'ACTIVE', adminActorId);
       expect(activeV2.status).toBe('ACTIVE');
 
       // Active config should now be version 2
@@ -132,7 +158,7 @@ describe('Authoritative Lifecycle & Engine Integration Flow', () => {
       expect(currentActive.version).toBe(2);
 
       // Rollback to version 1
-      const rolledBack = await configService.rollback(gameId, 1, 'admin-1');
+      const rolledBack = await configService.rollback(gameId, 1, adminActorId);
       expect(rolledBack.version).toBe(3);
       expect(rolledBack.status).toBe('ACTIVE');
     });

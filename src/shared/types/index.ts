@@ -75,6 +75,7 @@ export interface JWTPayload {
   username: string;
   role: UserRole;
   type: 'access' | 'refresh';
+  jti?: string;
   iat?: number;
   exp?: number;
 }

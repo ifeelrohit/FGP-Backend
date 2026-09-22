@@ -4,6 +4,7 @@
 // Never logs tokens. Payload contains only minimal required claims.
 // ==============================================================================
 
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { AuthenticationError } from '../errors/index.ts';
 import { JWTPayload, UserRole } from '../types/index.ts';
@@ -25,6 +26,7 @@ export function generateAccessToken(
     username: user.username,
     role: user.role,
     type: 'access',
+    jti: crypto.randomUUID(),
   };
 
   return jwt.sign(payload, secret, { expiresIn: expiresIn as jwt.SignOptions['expiresIn'] });
@@ -41,6 +43,7 @@ export function generateRefreshToken(
     username: user.username,
     role: user.role,
     type: 'refresh',
+    jti: crypto.randomUUID(),
   };
 
   return jwt.sign(payload, secret, { expiresIn: expiresIn as jwt.SignOptions['expiresIn'] });

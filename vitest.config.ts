@@ -7,5 +7,8 @@ export default defineConfig({
     isolate: false,
     environment: 'node',
     testTimeout: 30000,
+    sequence: {
+      concurrent: false,
+    },
   },
 });

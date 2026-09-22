@@ -124,6 +124,23 @@ export class PrismaPlayerEntryRepository implements IPlayerEntryRepository {
           `;
         }
 
+        // Re-check idempotency key AFTER acquiring account lock to prevent duplicate debit races
+        if (params.idempotencyKey) {
+          const existingEntryAfterLock = await tx.playerEntry.findUnique({
+            where: { idempotencyKey: params.idempotencyKey },
+          });
+          if (existingEntryAfterLock) {
+            const balance = Number(accounts[0].balance);
+            return {
+              entry: this.mapEntry(existingEntryAfterLock),
+              balanceBefore: balance,
+              balanceAfter: balance,
+              transactionId: '',
+              isIdempotent: true,
+            };
+          }
+        }
+
         const account = accounts[0];
         const currentBalance = Number(account.balance);
 
@@ -178,20 +195,23 @@ export class PrismaPlayerEntryRepository implements IPlayerEntryRepository {
         };
       });
     } catch (err: any) {
-      if (params.idempotencyKey && (err?.code === 'P2002' || err?.message?.includes('Unique constraint'))) {
-        const existingEntry = await this.findByIdempotencyKey(params.idempotencyKey);
-        if (existingEntry) {
-          const account = await prisma.virtualCreditAccount.findUnique({
-            where: { userId: params.userId },
-          });
-          const balance = account ? Number(account.balance) : 0;
-          return {
-            entry: existingEntry,
-            balanceBefore: balance,
-            balanceAfter: balance,
-            transactionId: '',
-            isIdempotent: true,
-          };
+      if (params.idempotencyKey && (err?.code === 'P2002' || err?.message?.includes('Unique constraint') || err?.message?.includes('duplicate key'))) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const existingEntry = await this.findByIdempotencyKey(params.idempotencyKey);
+          if (existingEntry) {
+            const account = await prisma.virtualCreditAccount.findUnique({
+              where: { userId: params.userId },
+            });
+            const balance = account ? Number(account.balance) : 0;
+            return {
+              entry: existingEntry,
+              balanceBefore: balance,
+              balanceAfter: balance,
+              transactionId: '',
+              isIdempotent: true,
+            };
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
         }
       }
       throw err;
@@ -305,6 +325,21 @@ export class PrismaSettlementRepository implements ISettlementRepository {
 
         // 3. Verify entry is eligible (CONFIRMED)
         if (entry.status !== 'CONFIRMED') {
+          const concurrentSettlement = await tx.settlement.findUnique({
+            where: { entryId: params.entryId },
+          });
+          if (concurrentSettlement) {
+            const account = await tx.virtualCreditAccount.findUnique({
+              where: { userId: params.userId },
+            });
+            const currentBalance = account ? Number(account.balance) : 0;
+            return {
+              settlement: this.mapSettlement(concurrentSettlement),
+              balanceBefore: currentBalance,
+              balanceAfter: currentBalance,
+              isIdempotent: true,
+            };
+          }
           throw new ConflictError(`Entry '${entry.id}' is not in CONFIRMED state (current: ${entry.status})`);
         }
 
@@ -376,7 +411,7 @@ export class PrismaSettlementRepository implements ISettlementRepository {
               balanceAfter,
               referenceType: params.referenceType || 'GAME_ROUND_REWARD',
               referenceId: entry.roundId,
-              idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}-reward` : undefined,
+              idempotencyKey: params.idempotencyKey ? `${params.idempotencyKey}-reward` : `settlement-reward-${entry.id}`,
               metadata: (params.outcome as any) ?? undefined,
             },
           });
@@ -418,19 +453,22 @@ export class PrismaSettlementRepository implements ISettlementRepository {
         };
       });
     } catch (err: any) {
-      if (err?.code === 'P2002' || err?.message?.includes('Unique constraint')) {
-        const existingSettlement = await this.findByEntryId(params.entryId);
-        if (existingSettlement) {
-          const account = await prisma.virtualCreditAccount.findUnique({
-            where: { userId: params.userId },
-          });
-          const currentBalance = account ? Number(account.balance) : 0;
-          return {
-            settlement: existingSettlement,
-            balanceBefore: currentBalance,
-            balanceAfter: currentBalance,
-            isIdempotent: true,
-          };
+      if (err?.code === 'P2002' || err?.message?.includes('Unique constraint') || err?.message?.includes('duplicate key')) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const existingSettlement = await this.findByEntryId(params.entryId);
+          if (existingSettlement) {
+            const account = await prisma.virtualCreditAccount.findUnique({
+              where: { userId: params.userId },
+            });
+            const currentBalance = account ? Number(account.balance) : 0;
+            return {
+              settlement: existingSettlement,
+              balanceBefore: currentBalance,
+              balanceAfter: currentBalance,
+              isIdempotent: true,
+            };
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
         }
       }
       throw err;

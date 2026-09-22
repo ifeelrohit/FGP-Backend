@@ -97,7 +97,7 @@ export class PrismaLedgerRepository implements ILedgerRepository {
 
     try {
       return await prisma.$transaction(async (tx) => {
-        // Check idempotency inside transaction
+        // Fast-path idempotency check inside transaction
         if (dto.idempotencyKey) {
           const existingTx = await tx.ledgerTransaction.findUnique({
             where: { idempotencyKey: dto.idempotencyKey },
@@ -143,6 +143,16 @@ export class PrismaLedgerRepository implements ILedgerRepository {
             WHERE "userId" = ${dto.userId}
             FOR UPDATE
           `;
+        }
+
+        // Re-check idempotency key AFTER acquiring account lock to prevent duplicate execution
+        if (dto.idempotencyKey) {
+          const existingTxAfterLock = await tx.ledgerTransaction.findUnique({
+            where: { idempotencyKey: dto.idempotencyKey },
+          });
+          if (existingTxAfterLock) {
+            return this.mapTransaction(existingTxAfterLock);
+          }
         }
 
         const account = accounts[0];
@@ -191,10 +201,13 @@ export class PrismaLedgerRepository implements ILedgerRepository {
         return this.mapTransaction(ledgerRow);
       });
     } catch (err: any) {
-      if (dto.idempotencyKey && (err?.code === 'P2002' || err?.message?.includes('Unique constraint'))) {
-        const existing = await this.findTransactionByIdempotencyKey(dto.idempotencyKey);
-        if (existing) {
-          return existing;
+      if (dto.idempotencyKey && (err?.code === 'P2002' || err?.message?.includes('Unique constraint') || err?.message?.includes('duplicate key'))) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const existing = await this.findTransactionByIdempotencyKey(dto.idempotencyKey);
+          if (existing) {
+            return existing;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
         }
       }
       throw err;
