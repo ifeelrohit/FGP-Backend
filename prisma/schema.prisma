@@ -111,6 +111,7 @@ model User {
 
   @@index([role])
   @@index([status])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -127,6 +128,8 @@ model RefreshToken {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
+  @@index([userId, revokedAt])
   @@map("refresh_tokens")
 }
 
@@ -141,6 +144,7 @@ model UserSession {
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
   @@map("user_sessions")
 }
 
@@ -160,6 +164,7 @@ model VirtualCreditAccount {
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions  LedgerTransaction[]
 
+  @@index([currency])
   @@map("virtual_credit_accounts")
 }
 
@@ -181,6 +186,8 @@ model LedgerTransaction {
   @@index([accountId])
   @@index([type])
   @@index([createdAt])
+  @@index([accountId, createdAt])
+  @@index([referenceType, referenceId])
   @@map("ledger_transactions")
 }
 
@@ -194,16 +201,19 @@ model GameEntity {
   name              String
   category          GameCategory
   status            GameStatus          @default(ACTIVE)
-  minEntry          Decimal             @default(10.00) @db.Decimal(12, 2)
-  maxEntry          Decimal             @default(10000.00) @db.Decimal(12, 2)
-  defaultMultiplier Decimal             @default(1.98) @db.Decimal(8, 4)
+  minEntry          Decimal             @default(10.0000) @db.Decimal(18, 4)
+  maxEntry          Decimal             @default(10000.0000) @db.Decimal(18, 4)
+  defaultMultiplier Decimal             @default(1.9800) @db.Decimal(8, 4)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
   configurations    GameConfiguration[]
   rounds            GameRound[]
   entries           PlayerEntry[]
+  settlements       Settlement[]
 
+  @@index([category, status])
+  @@index([status])
   @@map("games")
 }
 
@@ -229,6 +239,8 @@ model GameConfiguration {
 
   @@unique([gameId, version])
   @@index([gameId, status])
+  @@index([status])
+  @@index([publishedAt])
   @@map("game_configurations")
 }
 
@@ -245,7 +257,7 @@ model GameRound {
   configSnapshot Json?              // Immutable snapshot of configuration driving this round
   serverSeedHash String?            // Provably-fair commit hash generated at round creation
   serverSeed     String?            // Authoritative server secret revealed upon declaration
-  crashPoint     Decimal?           @db.Decimal(10, 2) // Single authoritative crash point per round
+  crashPoint     Decimal?           @db.Decimal(10, 4) // Single authoritative crash point per round
   scheduledAt    DateTime           @default(now())
   openedAt       DateTime?
   lockedAt       DateTime?
@@ -256,12 +268,16 @@ model GameRound {
   metadata       Json?
 
   game           GameEntity         @relation(fields: [gameId], references: [id], onDelete: Restrict)
-  configuration  GameConfiguration? @relation(fields: [configId], references: [id], onDelete: SetNull)
+  configuration  GameConfiguration? @relation(fields: [configId], references: [id], onDelete: Restrict)
   entries        PlayerEntry[]
   settlements    Settlement[]
 
   @@unique([gameId, roundNumber])
   @@index([gameId, status])
+  @@index([status])
+  @@index([configId])
+  @@index([scheduledAt])
+  @@index([openedAt])
   @@map("game_rounds")
 }
 
@@ -281,7 +297,7 @@ model PlayerEntry {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   game           GameEntity   @relation(fields: [gameId], references: [id], onDelete: Restrict)
   round          GameRound    @relation(fields: [roundId], references: [id], onDelete: Restrict)
   settlement     Settlement?
@@ -289,6 +305,8 @@ model PlayerEntry {
   @@index([userId, createdAt])
   @@index([roundId, status])
   @@index([gameId, createdAt])
+  @@index([userId, gameId, createdAt])
+  @@index([status])
   @@map("player_entries")
 }
 
@@ -299,18 +317,22 @@ model Settlement {
   userId           String
   gameId           String
   status           SettlementStatus @default(PENDING)
-  payoutMultiplier Decimal          @default(0.00) @db.Decimal(10, 4)
-  rewardAmount     Decimal          @default(0.00) @db.Decimal(18, 4)
+  payoutMultiplier Decimal          @default(0.0000) @db.Decimal(10, 4)
+  rewardAmount     Decimal          @default(0.0000) @db.Decimal(18, 4)
   outcome          Json?            // Authoritative outcome details
+  idempotencyKey   String?          @unique
   settledAt        DateTime         @default(now())
 
-  entry            PlayerEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry            PlayerEntry      @relation(fields: [entryId], references: [id], onDelete: Restrict)
   round            GameRound        @relation(fields: [roundId], references: [id], onDelete: Restrict)
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  game             GameEntity       @relation(fields: [gameId], references: [id], onDelete: Restrict)
 
   @@index([roundId])
   @@index([userId, settledAt])
   @@index([gameId, settledAt])
+  @@index([status])
+  @@index([settledAt])
   @@map("settlements")
 }
 
@@ -336,6 +358,7 @@ model AuditLog {
   @@index([action])
   @@index([targetType, targetId])
   @@index([createdAt])
+  @@index([requestId])
   @@map("audit_logs")
 }
 
@@ -352,5 +375,7 @@ model Announcement {
   updatedAt   DateTime  @updatedAt
 
   @@index([isActive, publishedAt])
+  @@index([targetRole, isActive])
+  @@index([expiresAt])
   @@map("announcements")
 }

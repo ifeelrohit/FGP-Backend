@@ -37,6 +37,7 @@ export interface SettlementEntity {
   payoutMultiplier: number;
   rewardAmount: number;
   outcome?: Record<string, unknown> | null;
+  idempotencyKey?: string | null;
   settledAt: Date;
 }
 
@@ -49,6 +50,7 @@ export interface CreateSettlementDto {
   payoutMultiplier: number;
   rewardAmount: number;
   outcome?: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 export interface CreateEntryWithDebitParams {

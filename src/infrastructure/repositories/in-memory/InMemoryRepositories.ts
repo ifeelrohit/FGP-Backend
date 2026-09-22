@@ -782,6 +782,7 @@ export class InMemorySettlementRepository implements ISettlementRepository {
       payoutMultiplier: dto.payoutMultiplier,
       rewardAmount: dto.rewardAmount,
       outcome: dto.outcome,
+      idempotencyKey: dto.idempotencyKey ?? null,
       settledAt: new Date(),
     };
     this.settlements.set(id, entity);
@@ -860,6 +861,7 @@ export class InMemorySettlementRepository implements ISettlementRepository {
         payoutMultiplier: params.payoutMultiplier,
         rewardAmount: params.rewardAmount,
         outcome: params.outcome,
+        idempotencyKey: params.idempotencyKey ?? null,
         settledAt: new Date(),
       };
       this.settlements.set(id, settlementEntity);

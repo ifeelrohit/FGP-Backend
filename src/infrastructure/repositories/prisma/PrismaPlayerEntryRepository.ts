@@ -272,6 +272,7 @@ export class PrismaSettlementRepository implements ISettlementRepository {
         payoutMultiplier: dto.payoutMultiplier,
         rewardAmount: dto.rewardAmount,
         outcome: (dto.outcome || {}) as any,
+        idempotencyKey: dto.idempotencyKey ?? null,
       },
     });
 
@@ -435,6 +436,7 @@ export class PrismaSettlementRepository implements ISettlementRepository {
             payoutMultiplier: params.payoutMultiplier,
             rewardAmount: params.rewardAmount,
             outcome: (params.outcome as any) ?? undefined,
+            idempotencyKey: params.idempotencyKey ?? null,
           },
         });
 
@@ -508,6 +510,7 @@ export class PrismaSettlementRepository implements ISettlementRepository {
       payoutMultiplier: Number(row.payoutMultiplier),
       rewardAmount: Number(row.rewardAmount),
       outcome: row.outcome as Record<string, unknown> | null,
+      idempotencyKey: row.idempotencyKey ?? null,
       settledAt: row.settledAt,
     };
   }
