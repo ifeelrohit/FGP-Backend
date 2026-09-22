@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ledgerService } from '../../src/modules/ledger/ledgerService.ts';
-import { inMemoryStore } from '../../src/infrastructure/database/inMemoryStore.ts';
+import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
 
 describe('Transaction Idempotency Enforcement', () => {
   const testUserId = 'test-player-idempotency-01';
 
   beforeEach(() => {
-    inMemoryStore.reset();
+    setRepositories(createInMemoryRepositories());
   });
 
   it('should return existing transaction on identical idempotencyKey', async () => {

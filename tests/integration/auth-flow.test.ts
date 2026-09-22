@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { buildApp } from '../../src/app/app.ts';
+import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
 
 describe('Integration: Authentication & User Flow', () => {
+  beforeEach(() => {
+    setRepositories(createInMemoryRepositories());
+  });
+
   it('should register a player, log in, and access protected /me', async () => {
     const app = await buildApp();
     const testEmail = `player_${Date.now()}@example.com`;

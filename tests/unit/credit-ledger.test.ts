@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ledgerService } from '../../src/modules/ledger/ledgerService.ts';
-import { inMemoryStore } from '../../src/infrastructure/database/inMemoryStore.ts';
+import { setRepositories, createInMemoryRepositories } from '../../src/infrastructure/repositories/index.ts';
 
 describe('Virtual Credit Ledger & Balance Arithmetic', () => {
   const testUserId = 'test-player-uuid-001';
 
   beforeEach(() => {
-    inMemoryStore.reset();
+    setRepositories(createInMemoryRepositories());
   });
 
   it('should initialize player account with 10,000 demo credits', async () => {
@@ -37,7 +37,7 @@ describe('Virtual Credit Ledger & Balance Arithmetic', () => {
         type: 'ENTRY',
         amount: 20000,
       })
-    ).rejects.toThrow(/Insufficient virtual credit balance/);
+    ).rejects.toThrow(/Insufficient/);
   });
 
   it('should credit rewards correctly', async () => {

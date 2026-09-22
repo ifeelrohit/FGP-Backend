@@ -30,7 +30,12 @@ export type ConfigStatus =
   | 'PREVIEW'
   | 'APPROVE'
   | 'PUBLISH'
-  | 'ACTIVE';
+  | 'ACTIVE'
+  | 'ARCHIVED';
+
+export type EntryStatus = 'SUBMITTED' | 'CONFIRMED' | 'CANCELLED' | 'SETTLED';
+
+export type SettlementStatus = 'PENDING' | 'WON' | 'LOST' | 'VOIDED';
 
 export type TransactionType =
   | 'CREDIT'

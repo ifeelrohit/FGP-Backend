@@ -5,8 +5,11 @@
 
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { settlementService } from '../settlements/settlementService.ts';
+import { roundService } from '../rounds/roundService.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
 import { formatSuccess } from '../../shared/utils/response.ts';
 import { authenticate } from '../../app/plugins/auth.ts';
+import { BadRequestError, NotFoundError } from '../../shared/errors/index.ts';
 import {
   GameActionSchema,
   GameIdParamSchema,
@@ -18,7 +21,7 @@ import {
 } from '../../shared/validation/index.ts';
 
 export const entryRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
-  // Generic authoritative action
+  // Generic authoritative action (prediction, casino, mini-games)
   fastify.post('/games/:gameId/action', { preHandler: [authenticate] }, async (request, reply) => {
     const { gameId } = GameIdParamSchema.parse(request.params);
     const body = GameActionSchema.parse({ ...(request.body as object), gameId });
@@ -66,11 +69,11 @@ export const entryRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
     return reply.status(200).send(formatSuccess(result, request.requestId));
   });
 
-  // Real-time Crash entry
+  // Real-time Crash entry: registers durable entry position in active round
   fastify.post('/realtime/crash/enter', { preHandler: [authenticate] }, async (request, reply) => {
     const body = CrashEntrySchema.parse(request.body);
 
-    const result = await settlementService.executeGameAction({
+    const result = await settlementService.submitEntry({
       userId: request.user!.id,
       gameId: body.gameId,
       entryAmount: body.entryAmount,
@@ -81,16 +84,29 @@ export const entryRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
     return reply.status(200).send(formatSuccess(result, request.requestId));
   });
 
-  // Real-time Crash cashout
+  // Real-time Crash cashout: server evaluates round crash point and calculates authoritative payout
   fastify.post('/realtime/crash/cashout', { preHandler: [authenticate] }, async (request, reply) => {
     const body = CashoutActionSchema.parse(request.body);
+    const userId = request.user!.id;
 
-    const result = await settlementService.executeGameAction({
-      userId: request.user!.id,
-      gameId: body.gameId,
-      roundId: body.roundId,
-      entryAmount: 0, // already debited on enter
-      payload: { cashoutMultiplier: body.clientMultiplier },
+    let targetEntryId = body.entryId;
+    if (!targetEntryId) {
+      if (!body.roundId) {
+        throw new BadRequestError('Either entryId or roundId must be provided for cashout');
+      }
+      // Locate active entry for this user and round
+      const entries = await getRepositories().entryRepo.findByRoundAndUser(body.roundId, userId);
+      const activeEntry = entries.find((e) => e.status === 'CONFIRMED');
+      if (!activeEntry) {
+        throw new NotFoundError(`No active confirmed entry found for round '${body.roundId}'`);
+      }
+      targetEntryId = activeEntry.id;
+    }
+
+    const result = await settlementService.cashoutCrash({
+      userId,
+      entryId: targetEntryId,
+      idempotencyKey: body.idempotencyKey,
     });
 
     return reply.status(200).send(formatSuccess(result, request.requestId));

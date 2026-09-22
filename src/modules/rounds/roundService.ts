@@ -1,123 +1,160 @@
 // ==============================================================================
 // FGP-Backend Round Lifecycle Service
-// Section 21: Authoritative state machine:
+// Strict round state machine:
 // SCHEDULED -> OPEN -> LOCKED -> RESULT_PENDING -> RESULT_DECLARED -> SETTLED -> COMPLETED
+// Configuration snapshotting and round-bound crash point commitment
 // ==============================================================================
 
 import crypto from 'node:crypto';
-import { inMemoryStore, StoredGameRound } from '../../infrastructure/database/inMemoryStore.ts';
-import { ConflictError, NotFoundError } from '../../shared/errors/index.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
+import {
+  IRoundRepository,
+  GameRoundEntity,
+} from '../../infrastructure/repositories/interfaces/IRoundRepository.ts';
+import { configService } from '../configurations/configService.ts';
+import { BadRequestError, NotFoundError, RoundLifecycleError } from '../../shared/errors/index.ts';
 import { RoundStatus } from '../../shared/types/index.ts';
 import { isValidRoundTransition } from '../../shared/constants/rounds.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
 
 export class RoundService {
-  public async getRoundById(roundId: string): Promise<StoredGameRound> {
-    const round = inMemoryStore.rounds.get(roundId);
+  private get repo(): IRoundRepository {
+    return getRepositories().roundRepo;
+  }
+
+  public async getRoundById(roundId: string): Promise<GameRoundEntity> {
+    const round = await this.repo.findById(roundId);
     if (!round) {
       throw new NotFoundError(`Round '${roundId}' not found`);
     }
     return round;
   }
 
-  public async getActiveRound(gameId: string): Promise<StoredGameRound | null> {
-    const activeStates: RoundStatus[] = ['OPEN', 'LOCKED', 'RESULT_PENDING'];
-    for (const round of inMemoryStore.rounds.values()) {
-      if (round.gameId === gameId && activeStates.includes(round.status)) {
-        return round;
-      }
-    }
-    return null;
+  public async getActiveRound(gameId: string): Promise<GameRoundEntity | null> {
+    return this.repo.getActiveRound(gameId);
   }
 
-  public async createRound(gameId: string, configId?: string): Promise<StoredGameRound> {
+  public async createRound(gameId: string): Promise<GameRoundEntity> {
     const existingActive = await this.getActiveRound(gameId);
     if (existingActive) {
       return existingActive;
     }
 
-    const allRoundsForGame = Array.from(inMemoryStore.rounds.values()).filter((r) => r.gameId === gameId);
-    const roundNumber = allRoundsForGame.length + 1;
-    const roundId = `rnd-${gameId}-${Date.now()}`;
+    // 1. Snapshot the exact active configuration version
+    let configId: string | undefined;
+    let configSnapshot: Record<string, unknown> | undefined;
+    try {
+      const activeConfig = await configService.getActiveConfig(gameId);
+      configId = activeConfig.id;
+      configSnapshot = {
+        version: activeConfig.version,
+        generalConfig: activeConfig.generalConfig,
+        entryConfig: activeConfig.entryConfig,
+        timingConfig: activeConfig.timingConfig,
+        ruleConfig: activeConfig.ruleConfig,
+        rewardConfig: activeConfig.rewardConfig,
+      };
+    } catch {
+      // Use default fallback snapshot if not yet seeded
+      configSnapshot = { version: 1, note: 'Default genesis configuration snapshot' };
+    }
 
-    const newRound: StoredGameRound = {
-      id: roundId,
+    // 2. Generate provably-fair commitment seeds
+    const serverSeed = crypto.randomBytes(32).toString('hex');
+    const serverSeedHash = crypto.createHash('sha256').update(serverSeed).digest('hex');
+
+    // 3. For crash games, calculate the single authoritative crash point at round creation
+    let crashPoint: number | undefined;
+    if (gameId === 'crash' || gameId === 'space_crash') {
+      const hashNum = parseInt(serverSeed.slice(0, 8), 16);
+      // House edge 4%, crash distribution
+      if (hashNum % 25 === 0) {
+        crashPoint = 1.0; // Instant bust (4% chance)
+      } else {
+        const rawMultiplier = 1.01 + ((hashNum % 10000) / 10000) * 15;
+        crashPoint = Math.round(rawMultiplier * 100) / 100;
+      }
+    }
+
+    // 4. Persist the round in SCHEDULED state
+    const scheduledRound = await this.repo.createRound({
       gameId,
-      roundNumber,
-      status: 'OPEN',
       configId,
+      configSnapshot,
+      serverSeedHash,
+      serverSeed,
+      crashPoint,
       scheduledAt: new Date(),
-      openedAt: new Date(),
-      metadata: { serverSeed: crypto.randomBytes(16).toString('hex') },
-    };
+    });
 
-    inMemoryStore.rounds.set(roundId, newRound);
+    // 5. Transition to OPEN state
+    const openRound = await this.repo.transitionStatus(scheduledRound.id, 'OPEN');
 
     eventBus.publish('ROUND_OPENED', {
-      roundId,
-      gameId,
-      roundNumber,
+      roundId: openRound.id,
+      gameId: openRound.gameId,
+      roundNumber: Number(openRound.roundNumber),
+      serverSeedHash,
       status: 'OPEN',
     });
 
-    return newRound;
+    return openRound;
   }
 
   public async transitionRoundStatus(
     roundId: string,
     targetStatus: RoundStatus,
-    reason?: string
-  ): Promise<StoredGameRound> {
+    result?: Record<string, unknown>
+  ): Promise<GameRoundEntity> {
     const round = await this.getRoundById(roundId);
 
     if (!isValidRoundTransition(round.status, targetStatus)) {
-      throw new ConflictError(
-        `Invalid round status transition from '${round.status}' to '${targetStatus}'`
+      throw new RoundLifecycleError(
+        `Invalid round lifecycle transition from '${round.status}' to '${targetStatus}'. Strict lifecycle: SCHEDULED -> OPEN -> LOCKED -> RESULT_PENDING -> RESULT_DECLARED -> SETTLED -> COMPLETED`
       );
     }
 
-    round.status = targetStatus;
+    const updated = await this.repo.transitionStatus(roundId, targetStatus, result);
 
     if (targetStatus === 'LOCKED') {
-      round.lockedAt = new Date();
-      eventBus.publish('ROUND_LOCKED', { roundId, gameId: round.gameId });
+      eventBus.publish('ROUND_LOCKED', { roundId, gameId: updated.gameId });
     } else if (targetStatus === 'RESULT_DECLARED') {
-      round.declaredAt = new Date();
-      eventBus.publish('RESULT_DECLARED', { roundId, gameId: round.gameId, result: round.result });
+      eventBus.publish('RESULT_DECLARED', {
+        roundId,
+        gameId: updated.gameId,
+        result: updated.result,
+        serverSeed: updated.serverSeed, // Reveal server seed upon result declaration
+      });
     } else if (targetStatus === 'SETTLED') {
-      round.settledAt = new Date();
-      eventBus.publish('ROUND_SETTLED', { roundId, gameId: round.gameId });
+      eventBus.publish('ROUND_SETTLED', { roundId, gameId: updated.gameId });
     } else if (targetStatus === 'COMPLETED') {
-      round.completedAt = new Date();
+      eventBus.publish('ROUND_COMPLETED', { roundId, gameId: updated.gameId });
     }
 
-    if (reason) {
-      round.metadata = { ...round.metadata, lastTransitionReason: reason };
-    }
-
-    return round;
+    return updated;
   }
 
   public async declareResult(
     roundId: string,
     result: Record<string, unknown>
-  ): Promise<StoredGameRound> {
+  ): Promise<GameRoundEntity> {
     const round = await this.getRoundById(roundId);
 
-    // If currently OPEN, lock first
+    // Enforce strict progression: OPEN -> LOCKED -> RESULT_PENDING -> RESULT_DECLARED
     if (round.status === 'OPEN') {
       await this.transitionRoundStatus(roundId, 'LOCKED');
     }
 
-    round.result = result;
-    return this.transitionRoundStatus(roundId, 'RESULT_DECLARED');
+    const lockedRound = await this.getRoundById(roundId);
+    if (lockedRound.status === 'LOCKED') {
+      await this.transitionRoundStatus(roundId, 'RESULT_PENDING');
+    }
+
+    return this.transitionRoundStatus(roundId, 'RESULT_DECLARED', result);
   }
 
-  public async listRounds(gameId?: string, limit = 20): Promise<StoredGameRound[]> {
-    return Array.from(inMemoryStore.rounds.values())
-      .filter((r) => !gameId || r.gameId === gameId)
-      .slice(-limit)
-      .reverse();
+  public async listRounds(gameId?: string, limit = 20): Promise<GameRoundEntity[]> {
+    return this.repo.listRounds(gameId, limit);
   }
 }
 

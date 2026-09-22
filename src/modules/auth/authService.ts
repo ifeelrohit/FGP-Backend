@@ -1,17 +1,18 @@
 // ==============================================================================
 // FGP-Backend Authentication Service
-// Argon2 password hashing, JWT access & refresh token rotation, session revocation
+// Argon2 password hashing, JWT access & refresh token rotation, persistent DB revocation
 // ==============================================================================
 
 import crypto from 'node:crypto';
 import { userService } from '../users/userService.ts';
 import { hashPassword, verifyPassword } from '../../shared/utils/hash.ts';
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../../shared/utils/jwt.ts';
-import { inMemoryStore, StoredUser } from '../../infrastructure/database/inMemoryStore.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
+import { IRefreshTokenRepository } from '../../infrastructure/repositories/interfaces/IRefreshTokenRepository.ts';
+import { UserEntity } from '../../infrastructure/repositories/interfaces/IUserRepository.ts';
 import {
   AuthenticationError,
   ConflictError,
-  NotFoundError,
 } from '../../shared/errors/index.ts';
 import { config } from '../../app/config.ts';
 import { UserRole } from '../../shared/types/index.ts';
@@ -28,6 +29,10 @@ export interface AuthTokens {
 }
 
 export class AuthService {
+  private get tokenRepo(): IRefreshTokenRepository {
+    return getRepositories().refreshTokenRepo;
+  }
+
   public async register(data: {
     email: string;
     username: string;
@@ -55,7 +60,11 @@ export class AuthService {
     return this.createTokensForUser(user);
   }
 
-  public async login(loginId: string, plainPassword: string): Promise<AuthTokens> {
+  public async login(
+    loginId: string,
+    plainPassword: string,
+    context?: { userAgent?: string; ipAddress?: string }
+  ): Promise<AuthTokens> {
     const user = await userService.findByLogin(loginId);
     if (!user) {
       throw new AuthenticationError('Invalid email/username or password');
@@ -71,17 +80,25 @@ export class AuthService {
     }
 
     await userService.updateLastLogin(user.id);
-    return this.createTokensForUser(user);
+    return this.createTokensForUser(user, context);
   }
 
   public async refreshTokens(rawRefreshToken: string): Promise<AuthTokens> {
     const payload = verifyToken(rawRefreshToken, config.JWT_REFRESH_SECRET, 'refresh');
 
     const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
-    const storedToken = inMemoryStore.refreshTokens.get(tokenHash);
+    const storedToken = await this.tokenRepo.findByTokenHash(tokenHash);
 
-    if (storedToken?.revokedAt) {
+    if (!storedToken) {
+      throw new AuthenticationError('Invalid or expired refresh token');
+    }
+
+    if (storedToken.revokedAt) {
       throw new AuthenticationError('Refresh token has been revoked');
+    }
+
+    if (new Date() > storedToken.expiresAt) {
+      throw new AuthenticationError('Refresh token has expired');
     }
 
     const user = await userService.findById(payload.userId);
@@ -89,27 +106,23 @@ export class AuthService {
       throw new AuthenticationError('User no longer active or does not exist');
     }
 
-    // Invalidate previous refresh token (token rotation pattern)
-    if (storedToken) {
-      storedToken.revokedAt = new Date();
-    }
+    // Revoke old refresh token (token rotation pattern)
+    await this.tokenRepo.revokeByTokenHash(tokenHash);
 
+    // Issue and persist new refresh token
     return this.createTokensForUser(user);
   }
 
   public async logout(rawRefreshToken: string): Promise<void> {
     try {
       const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
-      const storedToken = inMemoryStore.refreshTokens.get(tokenHash);
-      if (storedToken) {
-        storedToken.revokedAt = new Date();
-      }
+      await this.tokenRepo.revokeByTokenHash(tokenHash);
     } catch {
       // Graceful no-op on malformed tokens
     }
   }
 
-  public async verifyAccessToken(token: string): Promise<StoredUser> {
+  public async verifyAccessToken(token: string): Promise<UserEntity> {
     const payload = verifyToken(token, config.JWT_ACCESS_SECRET, 'access');
     const user = await userService.findById(payload.userId);
 
@@ -120,17 +133,22 @@ export class AuthService {
     return user;
   }
 
-  private createTokensForUser(user: StoredUser): AuthTokens {
+  private async createTokensForUser(
+    user: UserEntity,
+    context?: { userAgent?: string; ipAddress?: string }
+  ): Promise<AuthTokens> {
     const accessToken = generateAccessToken(user, config.JWT_ACCESS_SECRET, config.JWT_ACCESS_EXPIRES_IN);
     const refreshToken = generateRefreshToken(user, config.JWT_REFRESH_SECRET, config.JWT_REFRESH_EXPIRES_IN);
 
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    inMemoryStore.refreshTokens.set(tokenHash, {
-      id: crypto.randomUUID(),
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await this.tokenRepo.create({
       userId: user.id,
       tokenHash,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      createdAt: new Date(),
+      expiresAt,
+      userAgent: context?.userAgent,
+      ipAddress: context?.ipAddress,
     });
 
     return {

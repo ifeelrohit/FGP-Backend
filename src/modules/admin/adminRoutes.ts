@@ -137,7 +137,7 @@ export const adminRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
       const schema = z.object({ status: z.enum(['ACTIVE', 'MAINTENANCE', 'DISABLED']) });
       const { status } = schema.parse(request.body);
 
-      const updated = gameService.updateGameStatus(gameId, status as GameStatus, request.user!.id);
+      const updated = await gameService.updateGameStatus(gameId, status as GameStatus, request.user!.id);
 
       await auditService.logAction({
         actorId: request.user!.id,

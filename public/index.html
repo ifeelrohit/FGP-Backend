@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FGP-Backend | Authoritative Gaming Platform</title>
+  <meta name="description" content="Authoritative Modular Monolith Backend for Fantasy Gaming Platform (FGP) with Fastify, Prisma, Game Engines, and Real-Time Systems">
+  <meta property="og:title" content="FGP-Backend | Authoritative Gaming Platform">
+  <meta property="og:description" content="Authoritative Modular Monolith Backend for Fantasy Gaming Platform (FGP) with Fastify, Prisma, Game Engines, and Real-Time Systems">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#0284c7',
+              600: '#0369a1',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800 bg-slate-50 antialiased flex flex-col">
+  <!-- Top Platform Navigation & Status Bar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-lg tracking-wider">
+          FGP
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-slate-900 text-base leading-tight">Authoritative Platform Backend</h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium border border-slate-200">v1.0.0</span>
+          </div>
+          <p class="text-xs text-slate-500 font-mono">Port 3000 &bull; Fastify 5.x &bull; 18 Game Engines</p>
+        </div>
+      </div>
+
+      <!-- Live Subsystems Telemetry -->
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <div id="status-api" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>API: Online</span>
+        </div>
+        <div id="status-db" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 font-medium">
+          <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+          <span id="db-label">Database: Checking...</span>
+        </div>
+        <div id="status-ws" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span id="ws-label">WebSocket: Connecting...</span>
+        </div>
+        <button id="btn-refresh-status" class="px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors border border-slate-200">
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Sub-navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 flex gap-6 border-t border-slate-100 text-sm font-medium">
+      <button id="tab-btn-games" class="tab-btn py-2.5 border-b-2 border-slate-900 text-slate-900 font-semibold" onclick="switchTab('games')">
+        🎮 Game Engines & Rounds
+      </button>
+      <button id="tab-btn-websocket" class="tab-btn py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800" onclick="switchTab('websocket')">
+        ⚡ Live WebSocket Feed
+      </button>
+      <button id="tab-btn-wallet" class="tab-btn py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800" onclick="switchTab('wallet')">
+        💰 Virtual Credit Ledger
+      </button>
+      <button id="tab-btn-explorer" class="tab-btn py-2.5 border-b-2 border-transparent text-slate-500 hover:text-slate-800" onclick="switchTab('explorer')">
+        🔌 API Explorer
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
+
+    <!-- TAB 1: GAME ENGINES & ROUND LIFECYCLE CONTROLLER -->
+    <section id="tab-content-games" class="tab-pane space-y-6">
+      <!-- Active Game Selector & Summary Card -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Catalog List -->
+        <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col h-full">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500">18 Platform Games</h2>
+            <select id="catalog-category-filter" class="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-medium text-slate-700">
+              <option value="ALL">All Categories</option>
+              <option value="MULTIPLIER">Multiplier / Real-Time</option>
+              <option value="CASINO">Casino / Table</option>
+              <option value="MINI_GAME">Mini-Games</option>
+            </select>
+          </div>
+          <div id="games-list" class="space-y-1.5 overflow-y-auto max-h-[460px] pr-1 flex-1">
+            <!-- Populated dynamically via JS -->
+            <div class="p-3 text-center text-xs text-slate-400">Loading catalog...</div>
+          </div>
+        </div>
+
+        <!-- Selected Game Inspector & Authoritative Round Simulator -->
+        <div class="lg:col-span-2 space-y-6">
+          <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 id="selected-game-name" class="text-lg font-bold text-slate-900">Aviator</h3>
+                  <span id="selected-game-category" class="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">MULTIPLIER</span>
+                </div>
+                <p id="selected-game-desc" class="text-xs text-slate-500 mt-0.5">Authoritative real-time multiplier curve with server-side SHA256 seed commit</p>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-slate-400 block font-mono">Game ID</span>
+                <span id="selected-game-id" class="text-xs font-mono font-bold text-slate-700">aviator</span>
+              </div>
+            </div>
+
+            <!-- Parameters Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div class="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <span class="text-slate-400 block">Min Entry</span>
+                <span id="param-min-entry" class="font-bold text-slate-800 text-sm">10.00 VC</span>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <span class="text-slate-400 block">Max Entry</span>
+                <span id="param-max-entry" class="font-bold text-slate-800 text-sm">5,000.00 VC</span>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <span class="text-slate-400 block">House Edge</span>
+                <span id="param-house-edge" class="font-bold text-slate-800 text-sm">3.00%</span>
+              </div>
+              <div class="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <span class="text-slate-400 block">Provably Fair</span>
+                <span id="param-provably-fair" class="font-bold text-emerald-600 text-sm">SHA-256</span>
+              </div>
+            </div>
+
+            <!-- Live Round Control Panel -->
+            <div class="border border-slate-200 rounded-lg p-4 bg-slate-50/60 space-y-3">
+              <div class="flex items-center justify-between">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600">Authoritative Round Controller</h4>
+                <span id="round-status-badge" class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">NO ROUND ACTIVE</span>
+              </div>
+
+              <!-- Round Info Bar -->
+              <div id="active-round-details" class="hidden text-xs font-mono p-2.5 bg-white border border-slate-200 rounded text-slate-600 flex flex-wrap justify-between gap-2">
+                <div>Round ID: <span id="active-round-id" class="font-bold text-slate-900">-</span></div>
+                <div>Hash: <span id="active-round-hash" class="font-bold text-slate-900 truncate max-w-[120px] inline-block align-bottom">-</span></div>
+                <div>Status: <span id="active-round-status" class="font-bold text-emerald-600">-</span></div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="flex flex-wrap gap-2 pt-1">
+                <button id="btn-create-round" class="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-semibold transition shadow-xs">
+                  + Create New Round
+                </button>
+                <button id="btn-open-round" disabled class="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-md text-xs font-medium transition">
+                  Transition &rarr; OPEN
+                </button>
+                <button id="btn-lock-round" disabled class="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-md text-xs font-medium transition">
+                  Transition &rarr; LOCKED
+                </button>
+                <button id="btn-settle-round" disabled class="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-md text-xs font-medium transition">
+                  Transition &rarr; RESULT &rarr; SETTLED
+                </button>
+              </div>
+
+              <!-- Interactive Player Entry & Crash Cashout Section -->
+              <div class="border-t border-slate-200 pt-3 mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div>
+                  <label class="text-xs text-slate-600 font-medium block mb-1">Place Player Entry (Virtual Credits)</label>
+                  <div class="flex gap-2">
+                    <input id="input-entry-amount" type="number" value="50" min="10" max="5000" class="w-full text-xs px-3 py-2 rounded-md border border-slate-300 font-mono focus:outline-none focus:ring-1 focus:ring-slate-500">
+                    <button id="btn-place-entry" disabled class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-md text-xs font-semibold whitespace-nowrap transition">
+                      Place Bet
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="text-xs text-slate-600 font-medium block mb-1">Authoritative Cashout (Crash Games)</label>
+                  <button id="btn-cashout-crash" disabled class="w-full px-3 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white rounded-md text-xs font-semibold transition">
+                    Cashout Current Active Bet
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Real-Time Output Console Log for Round Activity -->
+            <div>
+              <div class="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span class="font-mono">Engine Execution & API Log</span>
+                <button onclick="clearConsole('round-console-log')" class="text-slate-400 hover:text-slate-600">Clear</button>
+              </div>
+              <pre id="round-console-log" class="p-3 bg-slate-900 text-slate-200 text-xs rounded-lg font-mono h-36 overflow-y-auto whitespace-pre-wrap leading-relaxed">System ready. Select a game above or click "+ Create New Round" to test the authoritative lifecycle.</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: LIVE WEBSOCKET TERMINAL -->
+    <section id="tab-content-websocket" class="tab-pane hidden space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Real-Time Domain Event Stream</h2>
+            <p class="text-xs text-slate-500 font-mono">ws://[host]:3000/ws &bull; Full-Duplex Broadcast Hub</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btn-toggle-ws" class="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition">
+              Connected
+            </button>
+            <button id="btn-send-ping" class="px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 border border-slate-200 transition">
+              Send PING
+            </button>
+            <button onclick="clearConsole('ws-console-log')" class="px-2.5 py-1.5 rounded-md bg-slate-100 text-slate-600 text-xs hover:bg-slate-200 border border-slate-200">
+              Clear Log
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <!-- Room Subscriptions -->
+          <div class="border border-slate-200 rounded-lg p-3 bg-slate-50 text-xs space-y-2">
+            <h3 class="font-bold text-slate-700 uppercase tracking-wider text-[11px]">Room Subscriptions</h3>
+            <div class="space-y-1.5">
+              <label class="flex items-center gap-2 text-slate-600 cursor-pointer">
+                <input type="checkbox" id="sub-global" checked class="rounded text-slate-900">
+                <span>Global Announcements</span>
+              </label>
+              <label class="flex items-center gap-2 text-slate-600 cursor-pointer">
+                <input type="checkbox" id="sub-rounds" checked class="rounded text-slate-900">
+                <span>Round State Transitions</span>
+              </label>
+              <label class="flex items-center gap-2 text-slate-600 cursor-pointer">
+                <input type="checkbox" id="sub-settlements" checked class="rounded text-slate-900">
+                <span>Settlements & Payouts</span>
+              </label>
+            </div>
+            <div class="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
+              Clients receive server-authoritative broadcast events whenever game state mutates.
+            </div>
+          </div>
+
+          <!-- WS Terminal Output -->
+          <div class="lg:col-span-3">
+            <pre id="ws-console-log" class="p-3 bg-slate-900 text-emerald-400 text-xs rounded-lg font-mono h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed">[WS Terminal] Connected to authoritative broadcast socket at /ws</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: VIRTUAL CREDIT LEDGER & WALLET -->
+    <section id="tab-content-wallet" class="tab-pane hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Player Identity & Balance Card -->
+        <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Authenticated Player</span>
+              <h3 id="player-username" class="font-bold text-slate-900 text-base">demo_player</h3>
+              <p id="player-email" class="text-xs text-slate-500 font-mono">player@fgp.local</p>
+            </div>
+            <span id="player-role-badge" class="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">PLAYER</span>
+          </div>
+
+          <!-- Balance Big Display -->
+          <div class="p-4 rounded-xl bg-slate-900 text-white space-y-1">
+            <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Virtual Credit Balance</span>
+            <div class="flex items-baseline gap-2">
+              <span id="player-balance" class="text-3xl font-extrabold tracking-tight font-mono">10,000.00</span>
+              <span class="text-sm font-semibold text-slate-300">VC</span>
+            </div>
+            <p class="text-[11px] text-slate-400 pt-1">Isolated simulation credits &bull; Strictly non-monetary</p>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="space-y-2 pt-1">
+            <button id="btn-faucet-credits" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md transition shadow-xs">
+              + Top-Up 1,000 Demo Credits
+            </button>
+            <button id="btn-quick-login" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-medium rounded-md transition">
+              Refresh Token / Re-authenticate
+            </button>
+          </div>
+        </div>
+
+        <!-- Ledger Transactions Table -->
+        <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Double-Entry Virtual Credit Ledger</h3>
+              <p class="text-xs text-slate-500">Immutable ledger records with before/after audit balances</p>
+            </div>
+            <button id="btn-refresh-ledger" class="text-xs text-slate-600 hover:text-slate-900 font-medium px-2 py-1 border border-slate-200 rounded bg-slate-50">
+              Refresh Table
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="text-[11px] uppercase bg-slate-50 text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th class="py-2 px-3">Type</th>
+                  <th class="py-2 px-3">Amount</th>
+                  <th class="py-2 px-3">Balance After</th>
+                  <th class="py-2 px-3">Reference</th>
+                  <th class="py-2 px-3 text-right">Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="ledger-table-body" class="divide-y divide-slate-100 font-mono">
+                <tr>
+                  <td colspan="5" class="py-6 text-center text-slate-400">Loading ledger records...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: API EXPLORER -->
+    <section id="tab-content-explorer" class="tab-pane hidden space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 space-y-4">
+        <div class="border-b border-slate-100 pb-3">
+          <h2 class="text-base font-bold text-slate-900">API Route Directory & Live Request Tester</h2>
+          <p class="text-xs text-slate-500">Execute authoritative endpoints directly against the Fastify backend</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <!-- Route Selector -->
+          <div class="space-y-2 text-xs">
+            <label class="font-bold text-slate-700 uppercase tracking-wider text-[11px] block">Select Endpoint</label>
+            <div class="space-y-1.5" id="api-routes-list">
+              <button onclick="setApiRequest('GET', '/health')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/health</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/ready')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/ready</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/api/v1/games')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/api/v1/games</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/api/v1/games/aviator/configuration')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/api/v1/games/:id/configuration</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/api/v1/rounds/active')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/api/v1/rounds/active</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/api/v1/me')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/api/v1/me</span>
+              </button>
+              <button onclick="setApiRequest('GET', '/api/v1/admin/audit-logs')" class="api-btn w-full text-left p-2 rounded-md bg-slate-100 hover:bg-slate-200 flex items-center justify-between border border-slate-200">
+                <span class="font-bold text-emerald-700 font-mono">GET</span>
+                <span class="font-mono text-slate-700">/api/v1/admin/audit-logs</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Request & Response Playground -->
+          <div class="lg:col-span-2 space-y-3">
+            <div class="flex gap-2">
+              <input id="api-method" value="GET" readonly class="w-20 px-3 py-2 bg-slate-100 border border-slate-300 rounded font-mono text-xs font-bold text-emerald-700">
+              <input id="api-url" value="/health" class="flex-1 px-3 py-2 border border-slate-300 rounded font-mono text-xs text-slate-800">
+              <button id="btn-execute-api" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded text-xs font-semibold transition">
+                Send Request
+              </button>
+            </div>
+            <div>
+              <span class="text-xs text-slate-500 font-mono block mb-1">Response Headers & Status: <span id="api-status-code" class="font-bold text-slate-800">-</span></span>
+              <pre id="api-response-output" class="p-3 bg-slate-900 text-slate-200 text-xs rounded-lg font-mono h-80 overflow-y-auto whitespace-pre-wrap">{ "message": "Click Send Request above" }</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500 font-mono">
+    Fantasy Gaming Platform (FGP) &bull; Authoritative Engine &bull; Fastify 5.x &bull; Local Port 3000
+  </footer>
+
+  <!-- Script for UI Logic & API Interactions -->
+  <script>
+    let activeCatalog = [];
+    let selectedGame = null;
+    let currentActiveRound = null;
+    let lastPlayerEntry = null;
+    let ws = null;
+    let authToken = localStorage.getItem('fgp_token') || '';
+
+    // Switch Tabs
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-slate-900', 'text-slate-900', 'font-semibold');
+        btn.classList.add('border-transparent', 'text-slate-500');
+      });
+
+      const targetPane = document.getElementById(`tab-content-${tabId}`);
+      const targetBtn = document.getElementById(`tab-btn-${tabId}`);
+      if (targetPane) targetPane.classList.remove('hidden');
+      if (targetBtn) {
+        targetBtn.classList.add('border-slate-900', 'text-slate-900', 'font-semibold');
+        targetBtn.classList.remove('border-transparent', 'text-slate-500');
+      }
+    }
+
+    function logTo(targetId, msg) {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      const timestamp = new Date().toLocaleTimeString();
+      el.textContent = `[${timestamp}] ${msg}\n` + el.textContent;
+    }
+
+    function clearConsole(id) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '';
+    }
+
+    // Initialize System Status Check
+    async function checkSystemStatus() {
+      try {
+        const res = await fetch('/ready');
+        const data = await res.json();
+        const dbBadge = document.getElementById('status-db');
+        const dbLabel = document.getElementById('db-label');
+
+        if (data.subsystems && data.subsystems.database) {
+          dbLabel.textContent = `Database: ${data.subsystems.database.mode}`;
+          dbBadge.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium";
+        }
+      } catch (err) {
+        document.getElementById('db-label').textContent = 'API Check Failed';
+      }
+    }
+
+    // Connect WebSocket
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          document.getElementById('ws-label').textContent = 'WebSocket: Connected';
+          document.getElementById('status-ws').className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium';
+          document.getElementById('btn-toggle-ws').textContent = 'Connected';
+          document.getElementById('btn-toggle-ws').className = 'px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition';
+          logTo('ws-console-log', 'Connected to WebSocket stream at ' + wsUrl);
+
+          // Subscribe
+          ws.send(JSON.stringify({ type: 'SUBSCRIBE', channel: 'ROUNDS' }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            logTo('ws-console-log', `[EVENT ${data.type || 'MESSAGE'}] ${JSON.stringify(data, null, 2)}`);
+          } catch (e) {
+            logTo('ws-console-log', `[RAW] ${event.data}`);
+          }
+        };
+
+        ws.onclose = () => {
+          document.getElementById('ws-label').textContent = 'WebSocket: Disconnected';
+          document.getElementById('status-ws').className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200 font-medium';
+          document.getElementById('btn-toggle-ws').textContent = 'Reconnect';
+          document.getElementById('btn-toggle-ws').className = 'px-3 py-1.5 rounded-md bg-slate-600 text-white text-xs font-semibold hover:bg-slate-700 transition';
+          logTo('ws-console-log', 'WebSocket connection closed.');
+        };
+
+        ws.onerror = (err) => {
+          logTo('ws-console-log', 'WebSocket error encountered.');
+        };
+      } catch (err) {
+        console.error('WS Error:', err);
+      }
+    }
+
+    // Load Catalog Games
+    async function loadGames() {
+      try {
+        const res = await fetch('/api/v1/games');
+        const json = await res.json();
+        if (json.success && json.data) {
+          activeCatalog = json.data.games || [];
+          renderCatalogList(activeCatalog);
+          if (activeCatalog.length > 0) {
+            selectGame(activeCatalog[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load games:', err);
+      }
+    }
+
+    function renderCatalogList(games) {
+      const container = document.getElementById('games-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      games.forEach(g => {
+        const btn = document.createElement('button');
+        btn.className = `w-full text-left p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 transition flex items-center justify-between text-xs ${selectedGame && selectedGame.id === g.id ? 'bg-slate-100 border-slate-400 font-semibold' : ''}`;
+        btn.onclick = () => selectGame(g.id);
+
+        btn.innerHTML = `
+          <div>
+            <span class="font-bold text-slate-800 block">${g.name}</span>
+            <span class="text-[10px] text-slate-500 uppercase font-mono">${g.category}</span>
+          </div>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-mono">${g.id}</span>
+        `;
+        container.appendChild(btn);
+      });
+    }
+
+    async function selectGame(gameId) {
+      selectedGame = activeCatalog.find(g => g.id === gameId);
+      if (!selectedGame) return;
+
+      document.getElementById('selected-game-name').textContent = selectedGame.name;
+      document.getElementById('selected-game-category').textContent = selectedGame.category;
+      document.getElementById('selected-game-desc').textContent = selectedGame.description || 'Authoritative engine implementation';
+      document.getElementById('selected-game-id').textContent = selectedGame.id;
+
+      // Re-render list highlighting
+      renderCatalogList(activeCatalog);
+
+      // Fetch active configuration for this game
+      try {
+        const res = await fetch(`/api/v1/games/${gameId}/configuration`);
+        const json = await res.json();
+        if (json.success && json.data && json.data.configuration) {
+          const cfg = json.data.configuration;
+          if (cfg.entryConfig) {
+            document.getElementById('param-min-entry').textContent = `${cfg.entryConfig.minEntry || 10}.00 VC`;
+            document.getElementById('param-max-entry').textContent = `${cfg.entryConfig.maxEntry || 5000}.00 VC`;
+          }
+          if (cfg.rewardConfig) {
+            document.getElementById('param-house-edge').textContent = `${((cfg.rewardConfig.houseEdge || 0.03) * 100).toFixed(2)}%`;
+          }
+        }
+      } catch (e) {}
+
+      logTo('round-console-log', `Selected game: ${selectedGame.name} (${selectedGame.id})`);
+    }
+
+    // Auto-login or register demo player
+    async function ensureAuth() {
+      try {
+        const loginRes = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            login: 'demo_player@fgp.local',
+            password: 'DemoPassword123!',
+          })
+        });
+
+        const json = await loginRes.json();
+        if (json.success && json.data) {
+          authToken = json.data.accessToken;
+          localStorage.setItem('fgp_token', authToken);
+          updatePlayerUI(json.data.user);
+        } else {
+          // Register demo player
+          const regRes = await fetch('/api/v1/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: 'demo_player@fgp.local',
+              username: 'demo_player',
+              password: 'DemoPassword123!',
+            })
+          });
+          const regJson = await regRes.json();
+          if (regJson.success && regJson.data) {
+            authToken = regJson.data.accessToken;
+            localStorage.setItem('fgp_token', authToken);
+            updatePlayerUI(regJson.data.user);
+          }
+        }
+        await loadLedger();
+      } catch (err) {
+        console.error('Auth setup error:', err);
+      }
+    }
+
+    function updatePlayerUI(user) {
+      if (!user) return;
+      document.getElementById('player-username').textContent = user.username || 'demo_player';
+      document.getElementById('player-email').textContent = user.email || 'player@fgp.local';
+      document.getElementById('player-role-badge').textContent = user.role || 'PLAYER';
+      if (user.balance !== undefined) {
+        document.getElementById('player-balance').textContent = Number(user.balance).toLocaleString('en-US', { minimumFractionDigits: 2 });
+      }
+    }
+
+    async function loadLedger() {
+      if (!authToken) return;
+      try {
+        const res = await fetch('/api/v1/me', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const json = await res.json();
+        if (json.success && json.data) {
+          updatePlayerUI(json.data.user);
+        }
+
+        const txRes = await fetch('/api/v1/ledger/transactions', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const txJson = await txRes.json();
+        const tbody = document.getElementById('ledger-table-body');
+        if (txJson.success && txJson.data && txJson.data.transactions && txJson.data.transactions.length > 0) {
+          tbody.innerHTML = '';
+          txJson.data.transactions.slice(0, 10).forEach(tx => {
+            const tr = document.createElement('tr');
+            const isCredit = tx.type === 'DEPOSIT' || tx.type === 'PAYOUT' || tx.type === 'CREDIT';
+            tr.innerHTML = `
+              <td class="py-2 px-3 font-semibold ${isCredit ? 'text-emerald-600' : 'text-slate-800'}">${tx.type}</td>
+              <td class="py-2 px-3 font-bold">${isCredit ? '+' : '-'}${Number(tx.amount).toFixed(2)}</td>
+              <td class="py-2 px-3 text-slate-500">${Number(tx.balanceAfter).toFixed(2)}</td>
+              <td class="py-2 px-3 text-slate-400 truncate max-w-[140px]">${tx.referenceId || tx.id}</td>
+              <td class="py-2 px-3 text-right text-slate-400">${new Date(tx.createdAt).toLocaleTimeString()}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        } else {
+          tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-slate-400">No ledger transactions recorded yet.</td></tr>`;
+        }
+      } catch (err) {
+        console.error('Failed to load ledger:', err);
+      }
+    }
+
+    // Create Round
+    document.getElementById('btn-create-round').onclick = async () => {
+      if (!selectedGame) return;
+      logTo('round-console-log', `Requesting POST /api/v1/rounds for ${selectedGame.id}...`);
+
+      try {
+        const res = await fetch('/api/v1/rounds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameId: selectedGame.id })
+        });
+        const json = await res.json();
+        if (json.success && json.data) {
+          currentActiveRound = json.data.round;
+          updateRoundUI(currentActiveRound);
+          logTo('round-console-log', `Round Created! ID: ${currentActiveRound.id}, Status: ${currentActiveRound.status}`);
+        } else {
+          logTo('round-console-log', `Error creating round: ${JSON.stringify(json)}`);
+        }
+      } catch (err) {
+        logTo('round-console-log', `Network error creating round: ${err.message}`);
+      }
+    };
+
+    function updateRoundUI(round) {
+      if (!round) return;
+      document.getElementById('active-round-details').classList.remove('hidden');
+      document.getElementById('active-round-id').textContent = round.id;
+      document.getElementById('active-round-hash').textContent = round.hash || 'committed-sha256';
+      document.getElementById('active-round-status').textContent = round.status;
+      document.getElementById('round-status-badge').textContent = round.status;
+
+      // Enable appropriate lifecycle buttons
+      document.getElementById('btn-open-round').disabled = round.status !== 'SCHEDULED';
+      document.getElementById('btn-lock-round').disabled = round.status !== 'OPEN';
+      document.getElementById('btn-settle-round').disabled = round.status !== 'LOCKED';
+      document.getElementById('btn-place-entry').disabled = round.status !== 'OPEN';
+    }
+
+    // Transition Round Status
+    async function transitionRound(targetStatus) {
+      if (!currentActiveRound) return;
+      logTo('round-console-log', `Transitioning round ${currentActiveRound.id} -> ${targetStatus}...`);
+
+      try {
+        const res = await fetch(`/api/v1/rounds/${currentActiveRound.id}/transition`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ targetStatus })
+        });
+        const json = await res.json();
+        if (json.success && json.data) {
+          currentActiveRound = json.data.round;
+          updateRoundUI(currentActiveRound);
+          logTo('round-console-log', `Transition Success! Status is now: ${currentActiveRound.status}`);
+        } else {
+          logTo('round-console-log', `Transition Rejected: ${JSON.stringify(json)}`);
+        }
+      } catch (err) {
+        logTo('round-console-log', `Error during transition: ${err.message}`);
+      }
+    }
+
+    document.getElementById('btn-open-round').onclick = () => transitionRound('OPEN');
+    document.getElementById('btn-lock-round').onclick = () => transitionRound('LOCKED');
+    document.getElementById('btn-settle-round').onclick = async () => {
+      // Step: LOCKED -> RESULT_PENDING -> RESULT_DECLARED -> SETTLED
+      await transitionRound('RESULT_PENDING');
+      await transitionRound('RESULT_DECLARED');
+      await transitionRound('SETTLED');
+      await loadLedger();
+    };
+
+    // Place Entry
+    document.getElementById('btn-place-entry').onclick = async () => {
+      if (!currentActiveRound || !authToken) return;
+      const amount = parseFloat(document.getElementById('input-entry-amount').value) || 50;
+      logTo('round-console-log', `Submitting Entry: ${amount} VC for round ${currentActiveRound.id}...`);
+
+      try {
+        const res = await fetch('/api/v1/entries', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            roundId: currentActiveRound.id,
+            gameId: currentActiveRound.gameId,
+            entryAmount: amount,
+            idempotencyKey: `entry-${Date.now()}`
+          })
+        });
+
+        const json = await res.json();
+        if (json.success && json.data) {
+          lastPlayerEntry = json.data.entry || json.data;
+          logTo('round-console-log', `Entry Accepted! ID: ${lastPlayerEntry.id || lastPlayerEntry.entryId}. Balance: ${lastPlayerEntry.balanceAfter} VC`);
+          document.getElementById('btn-cashout-crash').disabled = false;
+          await loadLedger();
+        } else {
+          logTo('round-console-log', `Entry Failed: ${JSON.stringify(json)}`);
+        }
+      } catch (err) {
+        logTo('round-console-log', `Network error placing entry: ${err.message}`);
+      }
+    };
+
+    // Crash Cashout
+    document.getElementById('btn-cashout-crash').onclick = async () => {
+      if (!lastPlayerEntry || !authToken) return;
+      const entryId = lastPlayerEntry.id || lastPlayerEntry.entryId;
+      logTo('round-console-log', `Executing authoritative cashout for entry ${entryId}...`);
+
+      try {
+        const res = await fetch('/api/v1/entries/crash/cashout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ entryId })
+        });
+
+        const json = await res.json();
+        if (json.success && json.data) {
+          logTo('round-console-log', `Cashout SUCCESS! Payout: ${json.data.rewardAmount} VC @ ${json.data.payoutMultiplier}x multiplier!`);
+          document.getElementById('btn-cashout-crash').disabled = true;
+          await loadLedger();
+        } else {
+          logTo('round-console-log', `Cashout Failed: ${JSON.stringify(json)}`);
+        }
+      } catch (err) {
+        logTo('round-console-log', `Cashout error: ${err.message}`);
+      }
+    };
+
+    // Top-up demo credits
+    document.getElementById('btn-faucet-credits').onclick = async () => {
+      if (!authToken) return;
+      try {
+        const res = await fetch('/api/v1/ledger/credits/deposit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            amount: 1000,
+            reason: 'Demo Faucet Refill'
+          })
+        });
+        const json = await res.json();
+        if (json.success) {
+          await loadLedger();
+          logTo('round-console-log', 'Faucet: Added 1,000 demo credits to player balance.');
+        }
+      } catch (err) {
+        console.error('Deposit error:', err);
+      }
+    };
+
+    // API Explorer helpers
+    function setApiRequest(method, url) {
+      document.getElementById('api-method').value = method;
+      document.getElementById('api-url').value = url;
+    }
+
+    document.getElementById('btn-execute-api').onclick = async () => {
+      const method = document.getElementById('api-method').value;
+      const url = document.getElementById('api-url').value;
+      const output = document.getElementById('api-response-output');
+      const statusSpan = document.getElementById('api-status-code');
+
+      output.textContent = 'Sending request...';
+      try {
+        const headers = {};
+        if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+        const start = performance.now();
+        const res = await fetch(url, { method, headers });
+        const latency = Math.round(performance.now() - start);
+        statusSpan.textContent = `${res.status} ${res.statusText} (${latency}ms)`;
+
+        const json = await res.json();
+        output.textContent = JSON.stringify(json, null, 2);
+      } catch (err) {
+        statusSpan.textContent = 'Error';
+        output.textContent = `Fetch error: ${err.message}`;
+      }
+    };
+
+    document.getElementById('btn-refresh-status').onclick = checkSystemStatus;
+    document.getElementById('btn-refresh-ledger').onclick = loadLedger;
+    document.getElementById('btn-quick-login').onclick = ensureAuth;
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+      checkSystemStatus();
+      connectWebSocket();
+      await loadGames();
+      await ensureAuth();
+    });
+  </script>
+</body>
+</html>

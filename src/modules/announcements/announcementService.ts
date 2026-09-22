@@ -1,19 +1,16 @@
 // ==============================================================================
 // FGP-Backend Announcements Service
-// Broadcast communications to players and operators
+// Broadcast communications to players and operators via repository
 // ==============================================================================
 
-import crypto from 'node:crypto';
-import { inMemoryStore, StoredAnnouncement } from '../../infrastructure/database/inMemoryStore.ts';
-import { NotFoundError } from '../../shared/errors/index.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
+import { AnnouncementEntity } from '../../infrastructure/repositories/interfaces/IAuditRepository.ts';
 import { UserRole } from '../../shared/types/index.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
 
 export class AnnouncementService {
-  public async listActive(role?: UserRole): Promise<StoredAnnouncement[]> {
-    return Array.from(inMemoryStore.announcements.values())
-      .filter((a) => a.isActive && (!a.targetRole || a.targetRole === role))
-      .sort((a, b) => b.priority - a.priority);
+  public async listActive(role?: UserRole): Promise<AnnouncementEntity[]> {
+    return getRepositories().announcementRepo.listActive(role);
   }
 
   public async createAnnouncement(params: {
@@ -22,40 +19,20 @@ export class AnnouncementService {
     targetRole?: UserRole;
     priority?: number;
     expiresAt?: Date;
-  }): Promise<StoredAnnouncement> {
-    const id = `ann-${Date.now()}`;
-    const announcement: StoredAnnouncement = {
-      id,
-      title: params.title,
-      content: params.content,
-      targetRole: params.targetRole,
-      priority: params.priority || 0,
-      isActive: true,
-      publishedAt: new Date(),
-      expiresAt: params.expiresAt,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    inMemoryStore.announcements.set(id, announcement);
+  }): Promise<AnnouncementEntity> {
+    const entity = await getRepositories().announcementRepo.create(params);
 
     eventBus.publish('ANNOUNCEMENT_PUBLISHED', {
-      announcementId: id,
+      announcementId: entity.id,
       title: params.title,
       targetRole: params.targetRole,
     });
 
-    return announcement;
+    return entity;
   }
 
-  public async archiveAnnouncement(id: string): Promise<StoredAnnouncement> {
-    const ann = inMemoryStore.announcements.get(id);
-    if (!ann) {
-      throw new NotFoundError(`Announcement '${id}' not found`);
-    }
-    ann.isActive = false;
-    ann.updatedAt = new Date();
-    return ann;
+  public async archiveAnnouncement(id: string): Promise<void> {
+    return getRepositories().announcementRepo.deactivate(id);
   }
 }
 

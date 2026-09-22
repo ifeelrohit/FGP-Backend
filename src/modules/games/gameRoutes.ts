@@ -15,14 +15,14 @@ export const gameRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
   fastify.get('/games', async (request, reply) => {
     const query = request.query as { category?: string };
     const category = query.category as GameCategory | undefined;
-    const games = gameService.listGames(category);
+    const games = await gameService.listGames(category);
     return reply.status(200).send(formatSuccess({ games, count: games.length }, request.requestId));
   });
 
   // Get specific game
   fastify.get('/games/:gameId', async (request, reply) => {
     const { gameId } = GameIdParamSchema.parse(request.params);
-    const game = gameService.getGameById(gameId);
+    const game = await gameService.getGameById(gameId);
     return reply.status(200).send(formatSuccess({ game }, request.requestId));
   });
 

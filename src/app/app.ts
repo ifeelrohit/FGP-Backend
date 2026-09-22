@@ -13,6 +13,7 @@ import { requestIdPlugin } from './plugins/requestId.ts';
 import { errorHandlerPlugin } from './plugins/errorHandler.ts';
 import { websocketPlugin } from './plugins/websocket.ts';
 import { checkDatabaseConnection } from '../infrastructure/database/prisma.ts';
+import { initializeRepositoryContainer } from '../infrastructure/repositories/index.ts';
 import { wsManager } from '../infrastructure/websocket/websocketManager.ts';
 import { authRoutes } from '../modules/auth/authRoutes.ts';
 import { gameRoutes } from '../modules/games/gameRoutes.ts';
@@ -24,6 +25,9 @@ import { adminRoutes } from '../modules/admin/adminRoutes.ts';
 import { formatError } from '../shared/utils/response.ts';
 
 export async function buildApp(): Promise<FastifyInstance> {
+  // Ensure repositories are correctly bound based on live database reachability
+  await initializeRepositoryContainer();
+
   const app = fastify({
     logger: false, // Handled cleanly via Pino and custom plugins
   });
@@ -90,12 +94,15 @@ export async function buildApp(): Promise<FastifyInstance> {
   );
 
   // 4. Static frontend & developer console serving
-  const distPath = path.join(process.cwd(), 'dist');
-  if (fs.existsSync(distPath)) {
+  const publicPath = path.join(process.cwd(), 'public');
+  if (fs.existsSync(publicPath)) {
     await app.register(fastifyStatic, {
-      root: distPath,
+      root: publicPath,
       prefix: '/',
-      wildcard: false,
+    });
+
+    app.get('/', async (_req, reply) => {
+      return reply.sendFile('index.html');
     });
 
     app.setNotFoundHandler(async (req, reply) => {

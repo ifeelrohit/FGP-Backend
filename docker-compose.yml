@@ -1,0 +1,57 @@
+# ==============================================================================
+# FGP Platform - Docker Compose Configuration
+# Boots Authoritative PostgreSQL 16 & Authoritative FGP-Backend
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fgp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fgp_user
+      POSTGRES_PASSWORD: fgp_password_secure
+      POSTGRES_DB: fgp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - fgp_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fgp_user -d fgp_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fgp-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://fgp_user:fgp_password_secure@postgres:5432/fgp_db?schema=public
+      JWT_ACCESS_SECRET: fgp_jwt_access_secret_phase03_production_key_autoritative
+      JWT_REFRESH_SECRET: fgp_jwt_refresh_secret_phase03_production_key_authoritative
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGIN: "*"
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  fgp_postgres_data:
+    driver: local

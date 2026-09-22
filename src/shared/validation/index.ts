@@ -81,9 +81,11 @@ export const CrashEntrySchema = z.object({
 });
 
 export const CashoutActionSchema = z.object({
-  gameId: z.enum(['crash', 'space_crash']),
-  roundId: z.string(),
-  clientMultiplier: z.number().positive(),
+  gameId: z.enum(['crash', 'space_crash']).optional(),
+  roundId: z.string().optional(),
+  entryId: z.string().optional(),
+  clientMultiplier: z.number().positive().optional(),
+  idempotencyKey: z.string().optional(),
 });
 
 // ------------------------------------------------------------------------------

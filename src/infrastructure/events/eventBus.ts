@@ -9,8 +9,10 @@ import { logger } from '../logging/logger.ts';
 export type DomainEventType =
   | 'ROUND_OPENED'
   | 'ROUND_LOCKED'
+  | 'RESULT_PENDING'
   | 'RESULT_DECLARED'
   | 'ROUND_SETTLED'
+  | 'ROUND_COMPLETED'
   | 'PLAYER_ENTRY_CREATED'
   | 'CREDIT_TRANSACTION_CREATED'
   | 'GAME_CONFIGURATION_PUBLISHED'

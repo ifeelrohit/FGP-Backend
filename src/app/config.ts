@@ -13,7 +13,7 @@ dotenv.config();
 const ConfigSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('0.0.0.0'),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.number().default(3000),
 
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5432/fgp_backend?schema=public'),
 
@@ -42,7 +42,14 @@ let parsedConfig: AppConfig | null = null;
 export function loadConfig(): AppConfig {
   if (parsedConfig) return parsedConfig;
 
-  const result = ConfigSchema.safeParse(process.env);
+  // Platform constraint: Port 3000 is hardcoded by infrastructure reverse proxy.
+  // Never override with container-level PORT environment variables.
+  const envToParse = {
+    ...process.env,
+    PORT: 3000,
+  };
+
+  const result = ConfigSchema.safeParse(envToParse);
 
   if (!result.success) {
     const errorDetails = result.error.format();

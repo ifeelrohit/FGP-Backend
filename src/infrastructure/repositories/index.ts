@@ -1,0 +1,210 @@
+// ==============================================================================
+// Repository Container & Factory
+// Authoritative Dependency Injection Provider for PostgreSQL Repositories
+// Production uses PostgreSQL / Prisma; Tests use in-memory adapters.
+// ==============================================================================
+
+import { IUserRepository } from './interfaces/IUserRepository.ts';
+import { IRefreshTokenRepository } from './interfaces/IRefreshTokenRepository.ts';
+import { IVirtualCreditRepository, ILedgerRepository } from './interfaces/IVirtualCreditRepository.ts';
+import { IGameRepository } from './interfaces/IGameRepository.ts';
+import { IGameConfigurationRepository } from './interfaces/IGameConfigurationRepository.ts';
+import { IRoundRepository } from './interfaces/IRoundRepository.ts';
+import { IPlayerEntryRepository, ISettlementRepository } from './interfaces/IPlayerEntryRepository.ts';
+import { IAuditRepository, IAnnouncementRepository } from './interfaces/IAuditRepository.ts';
+
+import { PrismaUserRepository } from './prisma/PrismaUserRepository.ts';
+import { PrismaRefreshTokenRepository } from './prisma/PrismaRefreshTokenRepository.ts';
+import { PrismaVirtualCreditRepository, PrismaLedgerRepository } from './prisma/PrismaLedgerRepository.ts';
+import { PrismaGameRepository } from './prisma/PrismaGameRepository.ts';
+import { PrismaGameConfigurationRepository } from './prisma/PrismaGameConfigurationRepository.ts';
+import { PrismaRoundRepository } from './prisma/PrismaRoundRepository.ts';
+import { PrismaPlayerEntryRepository, PrismaSettlementRepository } from './prisma/PrismaPlayerEntryRepository.ts';
+import { PrismaAuditRepository, PrismaAnnouncementRepository } from './prisma/PrismaAuditRepository.ts';
+
+import {
+  InMemoryUserRepository,
+  InMemoryRefreshTokenRepository,
+  InMemoryVirtualCreditRepository,
+  InMemoryLedgerRepository,
+  InMemoryGameRepository,
+  InMemoryGameConfigurationRepository,
+  InMemoryRoundRepository,
+  InMemoryPlayerEntryRepository,
+  InMemorySettlementRepository,
+  InMemoryAuditRepository,
+  InMemoryAnnouncementRepository,
+} from './in-memory/InMemoryRepositories.ts';
+
+import { GAME_CATALOG } from '../../shared/constants/games.ts';
+import { isDatabaseReachable } from '../database/prisma.ts';
+import { logger } from '../logging/logger.ts';
+
+export interface RepositoryContainer {
+  userRepo: IUserRepository;
+  refreshTokenRepo: IRefreshTokenRepository;
+  virtualCreditRepo: IVirtualCreditRepository;
+  ledgerRepo: ILedgerRepository;
+  gameRepo: IGameRepository;
+  configRepo: IGameConfigurationRepository;
+  roundRepo: IRoundRepository;
+  entryRepo: IPlayerEntryRepository;
+  settlementRepo: ISettlementRepository;
+  auditRepo: IAuditRepository;
+  announcementRepo: IAnnouncementRepository;
+}
+
+// Production Prisma-backed instance (Authoritative PostgreSQL)
+const prismaVirtualCreditRepo = new PrismaVirtualCreditRepository();
+const prismaLedgerRepo = new PrismaLedgerRepository();
+
+const productionContainer: RepositoryContainer = {
+  userRepo: new PrismaUserRepository(),
+  refreshTokenRepo: new PrismaRefreshTokenRepository(),
+  virtualCreditRepo: prismaVirtualCreditRepo,
+  ledgerRepo: prismaLedgerRepo,
+  gameRepo: new PrismaGameRepository(),
+  configRepo: new PrismaGameConfigurationRepository(),
+  roundRepo: new PrismaRoundRepository(),
+  entryRepo: new PrismaPlayerEntryRepository(),
+  settlementRepo: new PrismaSettlementRepository(),
+  auditRepo: new PrismaAuditRepository(),
+  announcementRepo: new PrismaAnnouncementRepository(),
+};
+
+// Initial in-memory container for local tests & offline development
+const defaultInMemory = createInMemoryRepositories();
+
+// Default to resilient in-memory container until database connection is verified
+let activeContainer: RepositoryContainer = defaultInMemory;
+
+export async function initializeRepositoryContainer(): Promise<RepositoryContainer> {
+  const reachable = await isDatabaseReachable();
+  if (reachable) {
+    activeContainer = productionContainer;
+    logger.info('Database server reachable at port 5432; running in authoritative PostgreSQL (Prisma) mode');
+  } else {
+    activeContainer = defaultInMemory;
+    logger.info('Database server not reachable at port 5432; running in resilient in-memory mode');
+  }
+  return activeContainer;
+}
+
+export function getRepositories(): RepositoryContainer {
+  return activeContainer;
+}
+
+export function setRepositories(container: RepositoryContainer): void {
+  activeContainer = container;
+}
+
+export function resetRepositoriesToProduction(): void {
+  activeContainer = productionContainer;
+}
+
+export function createInMemoryRepositories(): RepositoryContainer {
+  const userRepo = new InMemoryUserRepository();
+  const refreshTokenRepo = new InMemoryRefreshTokenRepository();
+  const virtualCreditRepo = new InMemoryVirtualCreditRepository();
+  const ledgerRepo = new InMemoryLedgerRepository(virtualCreditRepo);
+  userRepo.virtualCreditRepo = virtualCreditRepo;
+  userRepo.ledgerRepo = ledgerRepo;
+
+  const gameRepo = new InMemoryGameRepository();
+  const configRepo = new InMemoryGameConfigurationRepository();
+  const roundRepo = new InMemoryRoundRepository();
+  const entryRepo = new InMemoryPlayerEntryRepository();
+  const settlementRepo = new InMemorySettlementRepository();
+  const auditRepo = new InMemoryAuditRepository();
+  const announcementRepo = new InMemoryAnnouncementRepository();
+
+  // Pre-seed catalog games and active default configurations
+  for (const game of GAME_CATALOG) {
+    gameRepo.games.set(game.id, {
+      id: game.id,
+      code: game.id,
+      name: game.name,
+      category: game.category,
+      status: 'ACTIVE',
+      minEntry: 10.0,
+      maxEntry: 10000.0,
+      defaultMultiplier: 1.98,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const cfgId = `cfg-${game.id}-v1`;
+    configRepo.configs.set(cfgId, {
+      id: cfgId,
+      gameId: game.id,
+      version: 1,
+      status: 'ACTIVE',
+      generalConfig: {
+        name: game.name,
+        category: game.category,
+        enabled: true,
+      },
+      entryConfig: {
+        minEntry: 10.0,
+        maxEntry: 5000.0,
+        defaultEntry: 50.0,
+      },
+      timingConfig: {
+        roundDurationSeconds: 30,
+        bettingLockWindowSeconds: 5,
+        resultDeclarationDelaySeconds: 3,
+        settlementDelaySeconds: 2,
+      },
+      ruleConfig: {
+        maxNumber: 9,
+        deckCount: 6,
+        mineCount: 3,
+        provablyFair: true,
+      },
+      rewardConfig: {
+        houseEdge: 0.03,
+        multipliers: {
+          STANDARD: 1.98,
+          RED: 1.98,
+          GREEN: 1.98,
+          VIOLET: 4.5,
+        },
+      },
+      displayConfig: {
+        theme: 'dark',
+      },
+      operationalConfig: {
+        maxConcurrentRounds: 1,
+        autoRestartRound: true,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  // Pre-seed initial announcement
+  announcementRepo.announcements.set('ann-welcome', {
+    id: 'ann-welcome',
+    title: 'Welcome to FGP Platform Phase 03',
+    content: 'All games authoritative with virtual demo credits.',
+    priority: 1,
+    isActive: true,
+    publishedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return {
+    userRepo,
+    refreshTokenRepo,
+    virtualCreditRepo,
+    ledgerRepo,
+    gameRepo,
+    configRepo,
+    roundRepo,
+    entryRepo,
+    settlementRepo,
+    auditRepo,
+    announcementRepo,
+  };
+}

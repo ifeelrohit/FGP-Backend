@@ -53,6 +53,18 @@ export class ConflictError extends AppError {
   }
 }
 
+export class InsufficientBalanceError extends AppError {
+  constructor(message = 'Insufficient virtual credit balance', details: Record<string, unknown> = {}) {
+    super(message, 'INSUFFICIENT_BALANCE_ERROR', 400, details);
+  }
+}
+
+export class RoundLifecycleError extends AppError {
+  constructor(message = 'Invalid round lifecycle transition', details: Record<string, unknown> = {}) {
+    super(message, 'ROUND_LIFECYCLE_ERROR', 400, details);
+  }
+}
+
 export class BadRequestError extends AppError {
   constructor(message = 'Bad request syntax or unprocessable content', details: Record<string, unknown> = {}) {
     super(message, 'BAD_REQUEST_ERROR', 400, details);

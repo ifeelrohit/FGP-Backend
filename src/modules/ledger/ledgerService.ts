@@ -1,39 +1,34 @@
 // ==============================================================================
 // FGP-Backend Virtual Credit Ledger Service
-// Section 23: Virtual credits only. Immutable append-only accounting entries.
+// Authoritative append-only virtual credit accounting via durable repository
 // ==============================================================================
 
-import crypto from 'node:crypto';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
 import {
-  inMemoryStore,
-  StoredTransaction,
-  StoredVirtualAccount,
-} from '../../infrastructure/database/inMemoryStore.ts';
-import { BadRequestError, ConflictError, NotFoundError } from '../../shared/errors/index.ts';
+  IVirtualCreditRepository,
+  ILedgerRepository,
+  LedgerTransactionEntity,
+  VirtualCreditAccountEntity,
+} from '../../infrastructure/repositories/interfaces/IVirtualCreditRepository.ts';
+import { BadRequestError, NotFoundError } from '../../shared/errors/index.ts';
 import { TransactionType } from '../../shared/types/index.ts';
-import { getTransactionDelta } from '../../shared/constants/ledger.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
 
 export class LedgerService {
-  private processedIdempotencyKeys = new Set<string>();
+  private get creditRepo(): IVirtualCreditRepository {
+    return getRepositories().virtualCreditRepo;
+  }
 
-  public async getAccountByUserId(userId: string): Promise<StoredVirtualAccount> {
-    for (const acc of inMemoryStore.accounts.values()) {
-      if (acc.userId === userId) return acc;
+  private get ledgerRepo(): ILedgerRepository {
+    return getRepositories().ledgerRepo;
+  }
+
+  public async getAccountByUserId(userId: string): Promise<VirtualCreditAccountEntity> {
+    let account = await this.creditRepo.findByUserId(userId);
+    if (!account) {
+      account = await this.creditRepo.createAccount(userId, 10000.0);
     }
-
-    // Auto-provision if absent
-    const newAcc: StoredVirtualAccount = {
-      id: crypto.randomUUID(),
-      userId,
-      balance: 10000.0,
-      lockedBalance: 0.0,
-      currency: 'DEMO_CREDIT',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    inMemoryStore.accounts.set(newAcc.id, newAcc);
-    return newAcc;
+    return account;
   }
 
   public async getBalance(userId: string): Promise<{
@@ -57,72 +52,41 @@ export class LedgerService {
     referenceId?: string;
     idempotencyKey?: string;
     metadata?: Record<string, unknown>;
-  }): Promise<StoredTransaction> {
+  }): Promise<LedgerTransactionEntity> {
     const { userId, type, amount, referenceType, referenceId, idempotencyKey, metadata } = params;
 
     if (amount <= 0 && type !== 'ADJUSTMENT') {
       throw new BadRequestError('Transaction amount must be strictly greater than zero');
     }
 
-    // Idempotency check: prevent duplicate credit debit or reward
-    if (idempotencyKey) {
-      if (this.processedIdempotencyKeys.has(idempotencyKey)) {
-        const existing = inMemoryStore.transactions.find((t) => t.idempotencyKey === idempotencyKey);
-        if (existing) return existing;
-        throw new ConflictError(`Transaction with idempotency key '${idempotencyKey}' was already processed`);
-      }
-      this.processedIdempotencyKeys.add(idempotencyKey);
-    }
+    // Ensure account exists
+    await this.getAccountByUserId(userId);
 
-    const account = await this.getAccountByUserId(userId);
-    const delta = getTransactionDelta(type, amount);
-    const balanceBefore = account.balance;
-    const balanceAfter = Math.round((balanceBefore + delta) * 100) / 100;
-
-    // Reject transaction if it causes negative balance
-    if (balanceAfter < 0) {
-      throw new BadRequestError(
-        `Insufficient virtual credit balance. Current: ${balanceBefore}, required: ${Math.abs(delta)}`
-      );
-    }
-
-    account.balance = balanceAfter;
-    account.updatedAt = new Date();
-
-    const transaction: StoredTransaction = {
-      id: crypto.randomUUID(),
-      accountId: account.id,
+    // Atomically execute balance mutation and ledger record creation
+    const transaction = await this.ledgerRepo.executeTransaction({
       userId,
       type,
-      amount: Math.abs(amount),
-      balanceBefore,
-      balanceAfter,
+      amount,
       referenceType,
       referenceId,
       idempotencyKey,
       metadata,
-      createdAt: new Date(),
-    };
+    });
 
-    inMemoryStore.transactions.push(transaction);
-
-    // Emit domain event for real-time and audit listeners
+    // Emit domain event
     eventBus.publish('CREDIT_TRANSACTION_CREATED', {
       transactionId: transaction.id,
       userId,
       type,
       amount,
-      balanceAfter,
+      balanceAfter: transaction.balanceAfter,
     });
 
     return transaction;
   }
 
-  public async listTransactions(userId: string, limit = 50): Promise<StoredTransaction[]> {
-    return inMemoryStore.transactions
-      .filter((t) => t.userId === userId)
-      .slice(-limit)
-      .reverse();
+  public async listTransactions(userId: string, limit = 50): Promise<LedgerTransactionEntity[]> {
+    return this.ledgerRepo.listTransactionsByUserId(userId, limit);
   }
 
   public async adminAdjust(params: {
@@ -131,7 +95,7 @@ export class LedgerService {
     amount: number;
     reason: string;
     idempotencyKey?: string;
-  }): Promise<StoredTransaction> {
+  }): Promise<LedgerTransactionEntity> {
     const userAccount = await this.getAccountByUserId(params.userId);
     if (!userAccount) {
       throw new NotFoundError(`Virtual credit account for user ${params.userId} not found`);

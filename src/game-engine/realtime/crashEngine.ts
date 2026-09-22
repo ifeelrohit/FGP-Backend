@@ -1,6 +1,6 @@
 // ==============================================================================
 // FGP-Backend Real-Time Crash Engines (Crash & Space Crash)
-// Section 19: Authoritative crash point, multiplier progression, and anti-cheat cashout
+// Section 11 & 12: Round-bound crash point, server-authoritative multiplier & safe cashout
 // ==============================================================================
 
 import crypto from 'node:crypto';
@@ -16,12 +16,10 @@ export class CrashEngine extends BaseGameEngine {
   }
 
   /**
-   * Generates a provably authoritative crash multiplier on the server
-   * Multipliers range from 1.00x to 100.00x with 1% instant bust
+   * Generates an authoritative crash multiplier for a ROUND using provably fair seed
    */
-  public generateAuthoritativeCrashPoint(serverSeed?: string): number {
-    const seed = serverSeed || crypto.randomBytes(16).toString('hex');
-    const hash = crypto.createHash('sha256').update(seed).digest('hex');
+  public generateAuthoritativeCrashPoint(serverSeed: string): number {
+    const hash = crypto.createHash('sha256').update(serverSeed).digest('hex');
     const hexSlice = hash.substring(0, 8);
     const intVal = Number.parseInt(hexSlice, 16);
 
@@ -37,17 +35,31 @@ export class CrashEngine extends BaseGameEngine {
     return Math.max(1.0, Math.min(crashMultiplier, 250.0));
   }
 
-  public override resolveResult(context: GameActionContext): RoundResolution {
-    const serverSeed = crypto.randomBytes(16).toString('hex');
-    const crashPoint = this.generateAuthoritativeCrashPoint(serverSeed);
+  /**
+   * Resolves round outcome using the ROUND's predetermined crash point.
+   * Does NOT generate a new crash point on every resolve.
+   */
+  public override resolveResult(
+    context: GameActionContext,
+    roundState?: Record<string, unknown>
+  ): RoundResolution {
+    // Authoritative crash point comes from the ROUND state
+    let crashPoint = roundState?.crashPoint ? Number(roundState.crashPoint) : undefined;
+    let serverSeed = (roundState?.serverSeed as string) || undefined;
 
-    const requestedCashout = Number(
-      context.payload.cashoutMultiplier ?? context.payload.autoCashoutMultiplier ?? 1.5
-    );
+    if (!crashPoint) {
+      serverSeed = serverSeed || crypto.randomBytes(16).toString('hex');
+      crashPoint = this.generateAuthoritativeCrashPoint(serverSeed);
+    }
 
-    // Cashout is only successful if requested multiplier is strictly <= authoritative crash point
-    const won = requestedCashout > 1.0 && requestedCashout <= crashPoint;
-    const payoutMultiplier = won ? requestedCashout : 0;
+    // Server-authoritative cashout multiplier (not blindly trusting client)
+    const authoritativeMultiplier = roundState?.authoritativeMultiplier
+      ? Number(roundState.authoritativeMultiplier)
+      : Number(context.payload.authoritativeMultiplier ?? context.payload.autoCashoutMultiplier ?? 1.5);
+
+    // Cashout is only successful if cashout multiplier is strictly <= round's crash point
+    const won = authoritativeMultiplier >= 1.0 && authoritativeMultiplier <= crashPoint;
+    const payoutMultiplier = won ? authoritativeMultiplier : 0;
     const rewardAmount = won ? Math.floor(context.entryAmount * payoutMultiplier * 100) / 100 : 0;
 
     return {
@@ -55,9 +67,11 @@ export class CrashEngine extends BaseGameEngine {
       gameId: this.gameId,
       outcome: {
         crashPoint,
-        requestedCashout,
+        authoritativeMultiplier,
         cashedOut: won,
-        serverSeedHash: crypto.createHash('sha256').update(serverSeed).digest('hex'),
+        serverSeedHash: serverSeed
+          ? crypto.createHash('sha256').update(serverSeed).digest('hex')
+          : undefined,
       },
       payoutMultiplier,
       won,

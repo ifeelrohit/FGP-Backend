@@ -36,7 +36,7 @@ export const roundRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
       const round = await roundService.transitionRoundStatus(
         roundId,
         body.targetStatus as RoundStatus,
-        body.reason
+        body.reason ? { reason: body.reason } : undefined
       );
       return reply.status(200).send(formatSuccess({ round }, request.requestId));
     }

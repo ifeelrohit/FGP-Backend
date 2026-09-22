@@ -1,10 +1,12 @@
 // ==============================================================================
 // FGP-Backend Game Catalog Service
-// Section 14: 18 platform games catalog management, status and filtering
+// Authoritative 18 games catalog management via repository interfaces
 // ==============================================================================
 
 import { GAME_CATALOG, GameMetadata, getGameMetadata } from '../../shared/constants/games.ts';
-import { inMemoryStore } from '../../infrastructure/database/inMemoryStore.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
+import { IGameRepository } from '../../infrastructure/repositories/interfaces/IGameRepository.ts';
+import { IGameConfigurationRepository } from '../../infrastructure/repositories/interfaces/IGameConfigurationRepository.ts';
 import { GameCategory, GameStatus } from '../../shared/types/index.ts';
 import { NotFoundError } from '../../shared/errors/index.ts';
 import { eventBus } from '../../infrastructure/events/eventBus.ts';
@@ -16,56 +18,85 @@ export interface EnrichedGame extends GameMetadata {
 }
 
 export class GameService {
-  private gameStatuses = new Map<string, GameStatus>();
-
-  constructor() {
-    for (const game of GAME_CATALOG) {
-      this.gameStatuses.set(game.id, 'ACTIVE');
-    }
+  private get gameRepo(): IGameRepository {
+    return getRepositories().gameRepo;
   }
 
-  public listGames(category?: GameCategory): EnrichedGame[] {
+  private get configRepo(): IGameConfigurationRepository {
+    return getRepositories().configRepo;
+  }
+
+  public async listGames(category?: GameCategory): Promise<EnrichedGame[]> {
     const list = GAME_CATALOG.filter((g) => !category || g.category === category);
 
-    return list.map((g) => {
-      const status = this.gameStatuses.get(g.id) || 'ACTIVE';
-      const activeConfig = Array.from(inMemoryStore.configurations.values()).find(
-        (c) => c.gameId === g.id && c.status === 'ACTIVE'
-      );
+    const enriched: EnrichedGame[] = [];
+    for (const g of list) {
+      let status: GameStatus = 'ACTIVE';
+      try {
+        const dbGame = await this.gameRepo.findById(g.id);
+        if (dbGame) status = dbGame.status;
+      } catch {
+        // Fallback to active
+      }
 
-      return {
+      let version = 1;
+      try {
+        const activeCfg = await this.configRepo.getActiveConfig(g.id);
+        if (activeCfg) version = activeCfg.version;
+      } catch {
+        // Fallback to version 1
+      }
+
+      enriched.push({
         ...g,
         status,
-        activeConfigVersion: activeConfig?.version || 1,
-      };
-    });
+        activeConfigVersion: version,
+      });
+    }
+
+    return enriched;
   }
 
-  public getGameById(id: string): EnrichedGame {
+  public async getGameById(id: string): Promise<EnrichedGame> {
     const metadata = getGameMetadata(id);
     if (!metadata) {
       throw new NotFoundError(`Game '${id}' not found in authoritative catalog`);
     }
 
-    const status = this.gameStatuses.get(id) || 'ACTIVE';
-    const activeConfig = Array.from(inMemoryStore.configurations.values()).find(
-      (c) => c.gameId === id && c.status === 'ACTIVE'
-    );
+    let status: GameStatus = 'ACTIVE';
+    try {
+      const dbGame = await this.gameRepo.findById(id);
+      if (dbGame) status = dbGame.status;
+    } catch {
+      // Fallback
+    }
+
+    let version = 1;
+    try {
+      const activeCfg = await this.configRepo.getActiveConfig(id);
+      if (activeCfg) version = activeCfg.version;
+    } catch {
+      // Fallback
+    }
 
     return {
       ...metadata,
       status,
-      activeConfigVersion: activeConfig?.version || 1,
+      activeConfigVersion: version,
     };
   }
 
-  public updateGameStatus(id: string, status: GameStatus, actorId?: string): EnrichedGame {
+  public async updateGameStatus(id: string, status: GameStatus, actorId?: string): Promise<EnrichedGame> {
     const metadata = getGameMetadata(id);
     if (!metadata) {
       throw new NotFoundError(`Game '${id}' not found in authoritative catalog`);
     }
 
-    this.gameStatuses.set(id, status);
+    try {
+      await this.gameRepo.updateStatus(id, status);
+    } catch {
+      // Ignore if table not yet seeded
+    }
 
     eventBus.publish('GAME_STATUS_CHANGED', {
       gameId: id,

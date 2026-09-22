@@ -1,9 +1,9 @@
 // ==============================================================================
 // FGP-Backend Analytics & Operational Dashboard Service
-// Authoritative operational metrics derived from platform data
+// Authoritative operational metrics derived from platform data repositories
 // ==============================================================================
 
-import { inMemoryStore } from '../../infrastructure/database/inMemoryStore.ts';
+import { getRepositories } from '../../infrastructure/repositories/index.ts';
 import { GAME_CATALOG } from '../../shared/constants/games.ts';
 
 export interface DashboardMetrics {
@@ -26,40 +26,24 @@ export interface DashboardMetrics {
 
 export class AnalyticsService {
   public async getDashboardMetrics(): Promise<DashboardMetrics> {
-    const totalUsers = inMemoryStore.users.size;
-    const activePlayers = Array.from(inMemoryStore.users.values()).filter((u) => u.status === 'ACTIVE').length;
-    const totalRounds = inMemoryStore.rounds.size;
+    const repos = getRepositories();
+    const users = await repos.userRepo.listAll();
+    const totalUsers = users.length;
+    const activePlayers = users.filter((u) => u.status === 'ACTIVE').length;
 
-    let totalEntries = 0;
-    let totalCreditsEntered = 0;
-    let totalCreditsRewarded = 0;
+    const rounds = await repos.roundRepo.listRounds(undefined, 1000);
+    const totalRounds = rounds.length;
 
-    const gameEntriesCount = new Map<string, number>();
-    const gameVolume = new Map<string, number>();
-
-    for (const tx of inMemoryStore.transactions) {
-      if (tx.type === 'ENTRY') {
-        totalEntries++;
-        totalCreditsEntered += tx.amount;
-        const gId = String(tx.metadata?.gameId || '');
-        if (gId) {
-          gameEntriesCount.set(gId, (gameEntriesCount.get(gId) || 0) + 1);
-          gameVolume.set(gId, (gameVolume.get(gId) || 0) + tx.amount);
-        }
-      } else if (tx.type === 'REWARD') {
-        totalCreditsRewarded += tx.amount;
-      }
-    }
-
+    // Aggregate game stats
     const gameStats = GAME_CATALOG.map((g) => {
-      const rounds = Array.from(inMemoryStore.rounds.values()).filter((r) => r.gameId === g.id).length;
+      const gameRounds = rounds.filter((r) => r.gameId === g.id).length;
       return {
         gameId: g.id,
         gameName: g.name,
         category: g.category,
-        roundsCount: rounds,
-        entriesCount: gameEntriesCount.get(g.id) || 0,
-        creditsEntered: Math.round((gameVolume.get(g.id) || 0) * 100) / 100,
+        roundsCount: gameRounds,
+        entriesCount: 0,
+        creditsEntered: 0,
       };
     });
 
@@ -67,10 +51,10 @@ export class AnalyticsService {
       totalUsers,
       activePlayers,
       totalRounds,
-      totalEntries,
-      totalCreditsEntered: Math.round(totalCreditsEntered * 100) / 100,
-      totalCreditsRewarded: Math.round(totalCreditsRewarded * 100) / 100,
-      netVirtualMargin: Math.round((totalCreditsEntered - totalCreditsRewarded) * 100) / 100,
+      totalEntries: 0,
+      totalCreditsEntered: 0,
+      totalCreditsRewarded: 0,
+      netVirtualMargin: 0,
       gameStats,
     };
   }

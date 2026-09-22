@@ -1,6 +1,6 @@
 // ==============================================================================
 // FGP-Backend Prediction Game Engines
-// Authoritative server-side resolution for 6 prediction games
+// Section 10: Authoritative server-side resolution driven by configuration snapshots
 // ==============================================================================
 
 import { BaseGameEngine } from '../core/baseEngine.ts';
@@ -13,9 +13,13 @@ export class ColorPredictionEngine extends BaseGameEngine {
   readonly gameId = 'color_pred';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const luckyNumber = this.generateSecureRandomInt(0, 9);
-    let color: 'RED' | 'GREEN' | 'VIOLET';
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
 
+    const maxNumber = ruleConfig.maxNumber ?? 9;
+    const luckyNumber = this.generateSecureRandomInt(0, maxNumber);
+
+    let color: 'RED' | 'GREEN' | 'VIOLET';
     if (luckyNumber === 0 || luckyNumber === 5) {
       color = 'VIOLET';
     } else if (luckyNumber % 2 === 1) {
@@ -26,7 +30,12 @@ export class ColorPredictionEngine extends BaseGameEngine {
 
     const playerChoice = String(context.payload.color || context.payload.selection).toUpperCase();
     const won = playerChoice === color;
-    const multiplier = color === 'VIOLET' ? 4.5 : 1.98;
+
+    // Multipliers configured by admin configuration snapshot
+    const violetMultiplier = rewardConfig.multipliers?.VIOLET ?? 4.5;
+    const standardMultiplier = rewardConfig.multipliers?.STANDARD ?? 1.98;
+    const multiplier = color === 'VIOLET' ? violetMultiplier : standardMultiplier;
+
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -47,10 +56,15 @@ export class NumberPredictionEngine extends BaseGameEngine {
   readonly gameId = 'number_pred';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const outcomeNumber = this.generateSecureRandomInt(0, 9);
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const maxNumber = ruleConfig.maxNumber ?? 9;
+    const outcomeNumber = this.generateSecureRandomInt(0, maxNumber);
     const playerNumber = Number(context.payload.number ?? context.payload.selection);
     const won = playerNumber === outcomeNumber;
-    const multiplier = 9.0;
+
+    const multiplier = rewardConfig.multiplier ?? 9.0;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -71,12 +85,17 @@ export class OddEvenEngine extends BaseGameEngine {
   readonly gameId = 'odd_even';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    const outcomeNumber = this.generateSecureRandomInt(1, 100);
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const maxRange = ruleConfig.maxRange ?? 100;
+    const outcomeNumber = this.generateSecureRandomInt(1, maxRange);
     const isEven = outcomeNumber % 2 === 0;
     const actualParity = isEven ? 'EVEN' : 'ODD';
     const playerParity = String(context.payload.parity || context.payload.selection).toUpperCase();
     const won = playerParity === actualParity;
-    const multiplier = 1.96;
+
+    const multiplier = rewardConfig.multiplier ?? 1.96;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -97,15 +116,19 @@ export class HiLoEngine extends BaseGameEngine {
   readonly gameId = 'hi_lo';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const maxRange = ruleConfig.maxRange ?? 100;
     const baseNumber = Number(context.payload.baseNumber ?? 50);
-    const nextNumber = this.generateSecureRandomInt(1, 100);
+    const nextNumber = this.generateSecureRandomInt(1, maxRange);
     const direction = String(context.payload.direction || context.payload.selection).toUpperCase();
 
     let won = false;
     if (direction === 'HI' && nextNumber > baseNumber) won = true;
     if (direction === 'LO' && nextNumber < baseNumber) won = true;
 
-    const multiplier = 1.95;
+    const multiplier = rewardConfig.multiplier ?? 1.95;
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -126,13 +149,18 @@ export class DiceEngine extends BaseGameEngine {
   readonly gameId = 'dice';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    const houseEdge = rewardConfig.houseEdge ?? 0.02;
     const roll = this.generateSecureRandomInt(0, 9999) / 100; // 0.00 to 99.99
     const target = Number(context.payload.target ?? 50.0);
     const condition = String(context.payload.condition || 'ROLL_UNDER').toUpperCase();
 
     const won = condition === 'ROLL_UNDER' ? roll < target : roll > target;
     const winProbability = condition === 'ROLL_UNDER' ? target / 100 : (100 - target) / 100;
-    const multiplier = Math.max(1.01, Math.floor((0.98 / winProbability) * 100) / 100);
+    const rtp = 1 - houseEdge;
+    const multiplier = Math.max(1.01, Math.floor((rtp / winProbability) * 100) / 100);
     const rewardAmount = won ? Math.floor(context.entryAmount * multiplier * 100) / 100 : 0;
 
     return {
@@ -153,8 +181,11 @@ export class NumberWheelEngine extends BaseGameEngine {
   readonly gameId = 'number_wheel';
 
   public override resolveResult(context: GameActionContext): RoundResolution {
-    // 12 sectors with standard multipliers: [1x, 2x, 1x, 5x, 1x, 2x, 1x, 10x, 1x, 2x, 1x, 20x]
-    const sectors = [1, 2, 1, 5, 1, 2, 1, 10, 1, 2, 1, 20];
+    const ruleConfig = (context.config.ruleConfig || {}) as Record<string, any>;
+    const rewardConfig = (context.config.rewardConfig || {}) as Record<string, any>;
+
+    // Sectors can be driven by configuration
+    const sectors: number[] = rewardConfig.sectors || [1, 2, 1, 5, 1, 2, 1, 10, 1, 2, 1, 20];
     const winningSectorIndex = this.generateSecureRandomInt(0, sectors.length - 1);
     const sectorMultiplier = sectors[winningSectorIndex];
 
