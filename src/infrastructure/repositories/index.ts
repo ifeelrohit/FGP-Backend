@@ -138,6 +138,7 @@ export function createInMemoryRepositories(): RepositoryContainer {
   const ledgerRepo = new InMemoryLedgerRepository(virtualCreditRepo);
   userRepo.virtualCreditRepo = virtualCreditRepo;
   userRepo.ledgerRepo = ledgerRepo;
+  userRepo.refreshTokenRepo = refreshTokenRepo;
 
   const gameRepo = new InMemoryGameRepository();
   const configRepo = new InMemoryGameConfigurationRepository();

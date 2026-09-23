@@ -97,6 +97,7 @@ export class InMemoryUserRepository implements IUserRepository {
   public users = new Map<string, UserEntity>();
   public virtualCreditRepo?: InMemoryVirtualCreditRepository;
   public ledgerRepo?: InMemoryLedgerRepository;
+  public refreshTokenRepo?: InMemoryRefreshTokenRepository;
 
   public async findById(id: string): Promise<UserEntity | null> {
     return this.users.get(id) || null;
@@ -158,6 +159,13 @@ export class InMemoryUserRepository implements IUserRepository {
     if (!user) throw new NotFoundError(`User ${id} not found`);
     user.status = status;
     user.updatedAt = new Date();
+
+    if (status === 'SUSPENDED' || status === 'DISABLED') {
+      if (this.refreshTokenRepo) {
+        await this.refreshTokenRepo.revokeAllForUser(id);
+      }
+    }
+
     return user;
   }
 

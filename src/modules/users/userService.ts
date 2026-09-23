@@ -61,15 +61,7 @@ export class UserService {
     if (!user) {
       throw new NotFoundError(`User with id '${id}' not found`);
     }
-    const updatedUser = await this.repo.updateStatus(id, status);
-
-    // If user is suspended or disabled, immediately revoke all active refresh tokens
-    if (status === 'SUSPENDED' || status === 'DISABLED') {
-      const tokenRepo = getRepositories().refreshTokenRepo;
-      await tokenRepo.revokeAllForUser(id);
-    }
-
-    return updatedUser;
+    return this.repo.updateStatus(id, status);
   }
 
   public async listUsers(): Promise<UserEntity[]> {

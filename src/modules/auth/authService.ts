@@ -143,8 +143,13 @@ export class AuthService {
     user: UserEntity,
     context?: { userAgent?: string; ipAddress?: string }
   ): Promise<AuthTokens> {
-    const accessToken = generateAccessToken(user, config.JWT_ACCESS_SECRET, config.JWT_ACCESS_EXPIRES_IN);
-    const refreshToken = generateRefreshToken(user, config.JWT_REFRESH_SECRET, config.JWT_REFRESH_EXPIRES_IN);
+    const currentUser = await userService.findById(user.id);
+    if (!currentUser || currentUser.status !== 'ACTIVE') {
+      throw new AuthenticationError('User is not authorized or is inactive');
+    }
+
+    const accessToken = generateAccessToken(currentUser, config.JWT_ACCESS_SECRET, config.JWT_ACCESS_EXPIRES_IN);
+    const refreshToken = generateRefreshToken(currentUser, config.JWT_REFRESH_SECRET, config.JWT_REFRESH_EXPIRES_IN);
 
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
     const refreshLifetimeMs = parseDurationMs(config.JWT_REFRESH_EXPIRES_IN);

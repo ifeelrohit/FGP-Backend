@@ -76,6 +76,20 @@ export class PrismaUserRepository implements IUserRepository {
   }
 
   public async updateStatus(id: string, status: UserStatus): Promise<UserEntity> {
+    if (status === 'SUSPENDED' || status === 'DISABLED') {
+      return await prisma.$transaction(async (tx) => {
+        const user = await tx.user.update({
+          where: { id },
+          data: { status },
+        });
+        await tx.refreshToken.updateMany({
+          where: { userId: id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        return this.mapToEntity(user);
+      });
+    }
+
     const user = await prisma.user.update({
       where: { id },
       data: { status },

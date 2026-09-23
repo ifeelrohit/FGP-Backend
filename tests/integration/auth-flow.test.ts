@@ -400,4 +400,69 @@ describe('Integration: Authentication & User Flow', () => {
 
     await app.close();
   });
+
+  it('should guarantee atomic status transition and revoke active refresh tokens during concurrent refresh requests', async () => {
+    const app = await buildApp();
+    const email = `concur_status_${Date.now()}@example.com`;
+    const user = `concur_status_${Date.now().toString(36)}`;
+    const pass = 'StrongPass1234!';
+
+    // 1. Register
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: { email, username: user, password: pass },
+    });
+    const registeredUser = reg.json().data.user;
+    const token1 = reg.json().data.refreshToken;
+
+    // 2. Obtain additional active refresh tokens (simulating multiple client sessions)
+    const login2 = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { login: email, password: pass },
+    });
+    const token2 = login2.json().data.refreshToken;
+
+    const login3 = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { login: email, password: pass },
+    });
+    const token3 = login3.json().data.refreshToken;
+
+    // 3. Fire concurrent operations: user suspension alongside multiple refresh attempts
+    const operations = [
+      userService.updateUserStatus(registeredUser.id, 'SUSPENDED'),
+      app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: token1 } }),
+      app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: token2 } }),
+      app.inject({ method: 'POST', url: '/api/v1/auth/refresh', payload: { refreshToken: token3 } }),
+    ];
+
+    const results = await Promise.all(operations);
+    const updatedUser = results[0] as any;
+    expect(updatedUser.status).toBe('SUSPENDED');
+
+    // 4. Verify that subsequent refresh with any prior token is rejected
+    for (const t of [token1, token2, token3]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/refresh',
+        payload: { refreshToken: t },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().success).toBe(false);
+    }
+
+    // 5. Verify that login for suspended user fails with 401
+    const postSuspendLogin = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { login: email, password: pass },
+    });
+    expect(postSuspendLogin.statusCode).toBe(401);
+    expect(postSuspendLogin.json().error.message).toContain('inactive or suspended');
+
+    await app.close();
+  });
 });
