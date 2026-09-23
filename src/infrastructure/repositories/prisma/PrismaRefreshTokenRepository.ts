@@ -46,11 +46,12 @@ export class PrismaRefreshTokenRepository implements IRefreshTokenRepository {
     return row ? this.mapToEntity(row) : null;
   }
 
-  public async revokeByTokenHash(tokenHash: string): Promise<void> {
-    await prisma.refreshToken.updateMany({
+  public async revokeByTokenHash(tokenHash: string): Promise<boolean> {
+    const result = await prisma.refreshToken.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    return result.count > 0;
   }
 
   public async revokeAllForUser(userId: string): Promise<void> {

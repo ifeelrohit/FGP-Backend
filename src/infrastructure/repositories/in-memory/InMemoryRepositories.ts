@@ -199,9 +199,13 @@ export class InMemoryRefreshTokenRepository implements IRefreshTokenRepository {
     return this.tokens.get(tokenHash) || null;
   }
 
-  public async revokeByTokenHash(tokenHash: string): Promise<void> {
+  public async revokeByTokenHash(tokenHash: string): Promise<boolean> {
     const t = this.tokens.get(tokenHash);
-    if (t) t.revokedAt = new Date();
+    if (t && !t.revokedAt) {
+      t.revokedAt = new Date();
+      return true;
+    }
+    return false;
   }
 
   public async revokeAllForUser(userId: string): Promise<void> {

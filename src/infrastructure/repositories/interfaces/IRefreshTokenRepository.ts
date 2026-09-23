@@ -25,6 +25,6 @@ export interface CreateRefreshTokenDto {
 export interface IRefreshTokenRepository {
   create(dto: CreateRefreshTokenDto): Promise<RefreshTokenEntity>;
   findByTokenHash(tokenHash: string): Promise<RefreshTokenEntity | null>;
-  revokeByTokenHash(tokenHash: string): Promise<void>;
+  revokeByTokenHash(tokenHash: string): Promise<boolean>;
   revokeAllForUser(userId: string): Promise<void>;
 }

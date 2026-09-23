@@ -574,6 +574,25 @@
     // Auto-login or register demo player
     async function ensureAuth() {
       try {
+        // 1. If token already saved, test validity with /me
+        if (authToken) {
+          const meRes = await fetch('/api/v1/me', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+          });
+          if (meRes.ok) {
+            const meJson = await meRes.json();
+            if (meJson.success && meJson.data && meJson.data.user) {
+              updatePlayerUI(meJson.data.user);
+              await loadLedger();
+              return;
+            }
+          }
+          // Stale or invalid token from prior session/restart, clear it
+          authToken = null;
+          localStorage.removeItem('fgp_token');
+        }
+
+        // 2. Log in with the pre-seeded demo player account
         const loginRes = await fetch('/api/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -582,14 +601,14 @@
             password: 'DemoPassword123!',
           })
         });
+        const loginJson = await loginRes.json();
 
-        const json = await loginRes.json();
-        if (json.success && json.data) {
-          authToken = json.data.accessToken;
+        if (loginJson.success && loginJson.data) {
+          authToken = loginJson.data.accessToken;
           localStorage.setItem('fgp_token', authToken);
-          updatePlayerUI(json.data.user);
+          updatePlayerUI(loginJson.data.user);
         } else {
-          // Register demo player
+          // 3. If account was not pre-seeded, register it
           const regRes = await fetch('/api/v1/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

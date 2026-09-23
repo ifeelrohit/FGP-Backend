@@ -147,6 +147,29 @@ export function createInMemoryRepositories(): RepositoryContainer {
   const auditRepo = new InMemoryAuditRepository();
   const announcementRepo = new InMemoryAnnouncementRepository();
 
+  // Pre-seed demo player for seamless instant client interaction
+  const demoUserId = 'usr-player-demo-main';
+  const demoPasswordHash = '$argon2id$v=19$m=19456,p=1,t=2$1R6UIpk/n12zga1SmFzKYQ$aqyOMPoKESxNqmaGLRTNIo7+FXgxuA8fEta76pzwkD0';
+  userRepo.users.set(demoUserId, {
+    id: demoUserId,
+    email: 'demo_player@fgp.local',
+    username: 'demo_player',
+    passwordHash: demoPasswordHash,
+    role: 'PLAYER',
+    status: 'ACTIVE',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  virtualCreditRepo.accounts.set(`acc-${demoUserId}`, {
+    id: `acc-${demoUserId}`,
+    userId: demoUserId,
+    balance: 10000.0,
+    lockedBalance: 0,
+    currency: 'DEMO_CREDIT',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
   // Pre-seed catalog games and active default configurations
   for (const game of GAME_CATALOG) {
     gameRepo.games.set(game.id, {

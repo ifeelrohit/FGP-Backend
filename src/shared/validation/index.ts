@@ -11,19 +11,20 @@ import { ROUND_LIFECYCLE_ORDER } from '../constants/rounds.ts';
 // Auth Schemas
 // ------------------------------------------------------------------------------
 
-export const RegisterSchema = z.object({
-  email: z.string().email('Invalid email address format'),
-  username: z
-    .string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(30, 'Username cannot exceed 30 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Username must only contain letters, numbers, underscores, and hyphens'),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .max(100, 'Password cannot exceed 100 characters'),
-  role: z.enum(['PLAYER', 'SUPER_ADMIN', 'OPERATIONS_ADMIN', 'CONFIGURATION_ADMIN', 'VIEWER']).optional(),
-});
+export const RegisterSchema = z
+  .object({
+    email: z.string().email('Invalid email address format'),
+    username: z
+      .string()
+      .min(3, 'Username must be at least 3 characters')
+      .max(30, 'Username cannot exceed 30 characters')
+      .regex(/^[a-zA-Z0-9_-]+$/, 'Username must only contain letters, numbers, underscores, and hyphens'),
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .max(100, 'Password cannot exceed 100 characters'),
+  })
+  .strict();
 
 export const LoginSchema = z.object({
   login: z.string().min(1, 'Username or email is required'),

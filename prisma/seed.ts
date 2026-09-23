@@ -32,7 +32,22 @@ async function main() {
     parallelism: 1,
   });
 
+  const demoPlayerPasswordHash = await argon2.hash('DemoPassword123!', {
+    type: argon2.argon2id,
+    memoryCost: 19456,
+    timeCost: 2,
+    parallelism: 1,
+  });
+
   const usersToSeed = [
+    {
+      id: 'usr-player-demo-main',
+      email: 'demo_player@fgp.local',
+      username: 'demo_player',
+      passwordHash: demoPlayerPasswordHash,
+      role: 'PLAYER' as const,
+      status: 'ACTIVE' as const,
+    },
     {
       id: 'usr-super-admin-01',
       email: 'superadmin@fgp.local',

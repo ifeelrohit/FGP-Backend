@@ -14,26 +14,36 @@ export async function errorHandlerPlugin(fastify: FastifyInstance): Promise<void
     const requestId = request.requestId || 'req-unknown';
 
     // 1. Zod schema validation errors
-    if (error instanceof ZodError) {
-      const issue = error.issues[0];
-      const details = { issues: error.issues };
-      logger.warn({ requestId, err: issue }, 'Request schema validation failed');
+    if (error instanceof ZodError || (error as any)?.name === 'ZodError' || (error && 'issues' in error && Array.isArray((error as any).issues))) {
+      const issues = (error as any).issues || [];
+      const issue = issues[0];
+      const details = { issues };
+      logger.debug({ requestId }, 'Request schema validation failed');
       return reply
         .status(400)
         .send(formatError('VALIDATION_ERROR', issue?.message || 'Invalid request payload', details, requestId));
     }
 
     // 2. Domain application errors
-    if (error instanceof AppError) {
-      logger.warn({ requestId, code: error.code, message: error.message }, 'Application error handled');
+    if (error instanceof AppError || (error && typeof (error as any).statusCode === 'number' && typeof (error as any).code === 'string')) {
+      const appErr = error as AppError;
+      if (appErr.statusCode >= 500) {
+        logger.error({ requestId, code: appErr.code, message: appErr.message }, 'Application server error handled');
+      } else {
+        logger.debug({ requestId, statusCode: appErr.statusCode }, 'Application client request rejected');
+      }
       return reply
-        .status(error.statusCode)
-        .send(formatError(error.code, error.message, error.details, requestId));
+        .status(appErr.statusCode)
+        .send(formatError(appErr.code, appErr.message, appErr.details || {}, requestId));
     }
 
     // 3. Fastify built-in HTTP errors
     if ('statusCode' in error && typeof error.statusCode === 'number') {
-      logger.warn({ requestId, statusCode: error.statusCode, err: error.message }, 'HTTP error handled');
+      if (error.statusCode >= 500) {
+        logger.error({ requestId, statusCode: error.statusCode, err: error.message }, 'HTTP server error handled');
+      } else {
+        logger.debug({ requestId, statusCode: error.statusCode }, 'HTTP client request rejected');
+      }
       return reply
         .status(error.statusCode)
         .send(formatError('BAD_REQUEST_ERROR', error.message, {}, requestId));

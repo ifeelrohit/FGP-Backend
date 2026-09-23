@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import { userService } from '../users/userService.ts';
 import { hashPassword, verifyPassword } from '../../shared/utils/hash.ts';
-import { generateAccessToken, generateRefreshToken, verifyToken } from '../../shared/utils/jwt.ts';
+import { generateAccessToken, generateRefreshToken, verifyToken, parseDurationMs } from '../../shared/utils/jwt.ts';
 import { getRepositories } from '../../infrastructure/repositories/index.ts';
 import { IRefreshTokenRepository } from '../../infrastructure/repositories/interfaces/IRefreshTokenRepository.ts';
 import { UserEntity } from '../../infrastructure/repositories/interfaces/IUserRepository.ts';
@@ -37,7 +37,6 @@ export class AuthService {
     email: string;
     username: string;
     password: string;
-    role?: UserRole;
   }): Promise<AuthTokens> {
     const existingEmail = await userService.findByEmail(data.email);
     if (existingEmail) {
@@ -54,7 +53,7 @@ export class AuthService {
       email: data.email,
       username: data.username,
       passwordHash,
-      role: data.role || 'PLAYER',
+      role: 'PLAYER',
     });
 
     return this.createTokensForUser(user);
@@ -70,13 +69,13 @@ export class AuthService {
       throw new AuthenticationError('Invalid email/username or password');
     }
 
-    if (user.status !== 'ACTIVE') {
-      throw new AuthenticationError('Your account is inactive or suspended');
-    }
-
     const passwordValid = await verifyPassword(plainPassword, user.passwordHash);
     if (!passwordValid) {
       throw new AuthenticationError('Invalid email/username or password');
+    }
+
+    if (user.status !== 'ACTIVE') {
+      throw new AuthenticationError('Your account is inactive or suspended');
     }
 
     await userService.updateLastLogin(user.id);
@@ -94,6 +93,8 @@ export class AuthService {
     }
 
     if (storedToken.revokedAt) {
+      // Possible token theft or reuse detected: immediately revoke all active tokens for this user
+      await this.tokenRepo.revokeAllForUser(storedToken.userId);
       throw new AuthenticationError('Refresh token has been revoked');
     }
 
@@ -106,8 +107,13 @@ export class AuthService {
       throw new AuthenticationError('User no longer active or does not exist');
     }
 
-    // Revoke old refresh token (token rotation pattern)
-    await this.tokenRepo.revokeByTokenHash(tokenHash);
+    // Atomically revoke old refresh token (token rotation pattern)
+    const revoked = await this.tokenRepo.revokeByTokenHash(tokenHash);
+    if (!revoked) {
+      // Another concurrent refresh revoked this token in a race condition; treat as reuse
+      await this.tokenRepo.revokeAllForUser(storedToken.userId);
+      throw new AuthenticationError('Refresh token has been revoked');
+    }
 
     // Issue and persist new refresh token
     return this.createTokensForUser(user);
@@ -141,7 +147,8 @@ export class AuthService {
     const refreshToken = generateRefreshToken(user, config.JWT_REFRESH_SECRET, config.JWT_REFRESH_EXPIRES_IN);
 
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const refreshLifetimeMs = parseDurationMs(config.JWT_REFRESH_EXPIRES_IN);
+    const expiresAt = new Date(Date.now() + refreshLifetimeMs);
 
     await this.tokenRepo.create({
       userId: user.id,

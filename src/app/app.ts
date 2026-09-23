@@ -40,8 +40,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  await app.register(requestIdPlugin);
-  await app.register(errorHandlerPlugin);
+  await requestIdPlugin(app);
+  await errorHandlerPlugin(app);
   await app.register(websocketPlugin);
 
   // 2. Health & Readiness probes

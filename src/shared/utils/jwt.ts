@@ -15,6 +15,58 @@ export interface TokenPair {
   expiresIn: string;
 }
 
+/**
+ * Parses standard duration strings (e.g., '15m', '7d', '24h', '60s') into milliseconds.
+ * Ensures persisted token expiration exactly matches JWT expiration configuration.
+ */
+export function parseDurationMs(duration: string | number): number {
+  if (typeof duration === 'number') {
+    return duration * 1000;
+  }
+  const match = duration.trim().match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$/);
+  if (!match) {
+    throw new Error(`Invalid duration string: ${duration}`);
+  }
+  const value = parseFloat(match[1]);
+  const unit = (match[2] || 'ms').toLowerCase();
+  switch (unit) {
+    case 's':
+    case 'sec':
+    case 'secs':
+    case 'second':
+    case 'seconds':
+      return value * 1000;
+    case 'm':
+    case 'min':
+    case 'mins':
+    case 'minute':
+    case 'minutes':
+      return value * 60 * 1000;
+    case 'h':
+    case 'hr':
+    case 'hrs':
+    case 'hour':
+    case 'hours':
+      return value * 60 * 60 * 1000;
+    case 'd':
+    case 'day':
+    case 'days':
+      return value * 24 * 60 * 60 * 1000;
+    case 'w':
+    case 'wk':
+    case 'wks':
+    case 'week':
+    case 'weeks':
+      return value * 7 * 24 * 60 * 60 * 1000;
+    case 'ms':
+    case 'millisecond':
+    case 'milliseconds':
+      return value;
+    default:
+      throw new Error(`Unsupported duration unit: ${unit}`);
+  }
+}
+
 export function generateAccessToken(
   user: { id: string; email: string; username: string; role: UserRole },
   secret: string,
